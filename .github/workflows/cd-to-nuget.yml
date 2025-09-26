@@ -48,10 +48,3 @@ jobs:
               --api-key ${{ secrets.NUGET_APIKEY }} \
               --source https://api.nuget.org/v3/index.json
           done
-
-          for spkg in artifacts/*.snupkg; do
-            echo "Pushing $spkg"
-            dotnet nuget push "$spkg" \
-              --api-key ${{ secrets.NUGET_APIKEY }} \
-              --source https://api.nuget.org/v3/index.json
-          done
