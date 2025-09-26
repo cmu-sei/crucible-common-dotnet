@@ -38,7 +38,7 @@ jobs:
             -o artifacts \
             -p:IncludeSymbols=true \
             -p:SymbolPackageFormat=snupkg \
-            /p:PackageVersion=${GITHUB_REF_NAME#v}  # uses release tag as version
+            -p:PackageVersion=${GITHUB_REF_NAME#v}  # uses release tag as version
 
       - name: Publish packages (and symbols) to NuGet
         run: |
@@ -49,9 +49,9 @@ jobs:
               --source https://api.nuget.org/v3/index.json
           done
 
-          for snupkg in artifacts/*.snupkg; do
-            echo "Pushing $snupkg"
-            dotnet nuget push "$snupkg" \
+          for spkg in artifacts/*.snupkg; do
+            echo "Pushing $spkg"
+            dotnet nuget push "$spkg" \
               --api-key ${{ secrets.NUGET_APIKEY }} \
               --source https://api.nuget.org/v3/index.json
           done

@@ -20,6 +20,7 @@ A collection of helpers for authentication-related tasks (OAuth, OIDC, claims tr
 - Add it to the solution (`dotnet sln add Crucible.Common.YourNewPackage`)
 - Add any applicable test suites in `Crucible.Common.Tests/src/YourNewPackage/YourNewPackageTests.cs` (multiple test suites are fine and encouraged)
 - **Important:** Add your fully-qualified package name (`Crucible.Common.YourPackage`) to the `package:` key in our `CD to NuGet` Github Action definition so that new releases of the repo will include your package.
+- **Important:** Add license and readme handling to your new csproj (see [Crucible.Common.Authentication.csproj](https://github.com/cmu-sei/crucible-common-dotnet/blob/main/src/Crucible.Common.Authentication/Crucible.Common.Authentication.csproj) as an example)
 
 ### Setting up a local package registry
 

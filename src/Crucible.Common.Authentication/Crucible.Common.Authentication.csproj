@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Crucible.Common.Authentication</RootNamespace>
   </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Duende.IdentityModel" Version="7.1.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
@@ -15,4 +16,22 @@
     <PackageReference Include="Polly.Extensions.Http" Version="3.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
   </ItemGroup>
+
+  <!--README config-->
+  <PropertyGroup>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!--LICENSE config-->
+  <PropertyGroup>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+      <None Include="../../LICENSE.md" Pack="true" PackagePath="/"/>
+  </ItemGroup> 
 </Project>
