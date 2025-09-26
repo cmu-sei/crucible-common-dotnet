@@ -33,12 +33,14 @@ jobs:
       - name: Pack package (and symbols package ".snupkg")
         run: |
           mkdir -p artifacts
+          VERSION=${GITHUB_REF_NAME#v} # strips v from the version tag if present
+          echo "Packing version $VERSION"
           dotnet pack src/${{ matrix.package }}/${{ matrix.package }}.csproj \
             -c Release --no-build \
             -o artifacts \
             -p:IncludeSymbols=true \
             -p:SymbolPackageFormat=snupkg \
-            -p:PackageVersion=${GITHUB_REF_NAME#v}  # uses release tag as version
+            -p:PackageVersion="$VERSION"
 
       - name: Publish packages (and symbols) to NuGet
         run: |
