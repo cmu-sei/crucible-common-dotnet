@@ -1,0 +1,25 @@
+name: build-and-test
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        required: false
+        default: "8.0"
+        type: string
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+      - name: Restore dependencies
+        run: dotnet restore src
+      - name: Build
+        run: dotnet build src -c Release --no-restore
+      - name: Test
+        run: dotnet test src -c Release --no-build

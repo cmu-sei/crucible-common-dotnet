@@ -1,0 +1,6 @@
+# compiled output
+**/bin/*
+**/obj/*
+
+# sys files
+.DS_Store

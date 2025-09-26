@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "dotnet",
+      "task": "build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "label": "dotnet: build"
+    },
+    {
+      "command": "dotnet",
+      "type": "process",
+      "label": "Crucible: Local Pack",
+      "problemMatcher": [],
+      "args": ["pack", "src", "-c", "release", "-o", "${input:localNuget}"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "localNuget",
+      "description": "The address of a local folder configured as NuGet repository for dev",
+      "default": "${userHome}/local-nuget",
+      "type": "promptString"
+    }
+  ]
+}
