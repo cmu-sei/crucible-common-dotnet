@@ -1,9 +1,9 @@
-# name: CD to NuGet
+name: CD to NuGet
 
-# on:
-#   release:
-#     types: ["published"]
+on:
+    release:
+        types: ["published"]
 
-# jobs:
-#   build-and-test:
-#     uses: ./.github/workflows/build-and-test.yml
+jobs:
+    build-and-test:
+        uses: ./.github/workflows/build-and-test.yml
