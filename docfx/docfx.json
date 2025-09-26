@@ -29,6 +29,7 @@
     "globalMetadata": {
       "_appName": "Crucible.Common",
       "_appTitle": "Crucible.Common",
+      "_appFaviconPath": "images/favicon.ico",
       "_appLogoPath": "images/crucible-logo.png",
       "_enableSearch": true,
       "pdf": false
