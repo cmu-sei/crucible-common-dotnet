@@ -47,8 +47,10 @@ internal sealed class CrucibleServiceAccountTokenService
     private async Task<TokenResponse> RenewToken(CancellationToken cancellationToken)
     {
         logger.LogInformation("Renewing auth token...");
-
+        logger.LogInformation("Discovering token endpoint...");
         var discoDoc = await httpClient.GetDiscoveryDocumentAsync(crucibleServiceAccountAuthConfig.OidcAuthority, cancellationToken);
+
+        logger.LogInformation("Requesting new token...");
         var tokenResponse = await httpClient.RequestClientCredentialsTokenAsync(new ClientCredentialsTokenRequest
         {
             Address = discoDoc.TokenEndpoint,

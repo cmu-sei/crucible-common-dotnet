@@ -1,9 +1,48 @@
 name: CD to NuGet
 
 on:
-    release:
-        types: ["published"]
+  release:
+    types: ["published"]
 
 jobs:
-    build-and-test:
-        uses: ./.github/workflows/build-and-test.yml
+  build-and-test:
+    uses: ./.github/workflows/build-and-test.yml
+
+  publish:
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        # add additional packages here as we create new ones
+        package: [Crucible.Common.Authentication]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0"
+
+      - name: Restore dependencies
+        run: dotnet restore src/${{ matrix.package }}
+
+      - name: Build package
+        run: dotnet build src/${{ matrix.package }} -c Release --no-restore
+
+      - name: Pack package
+        run: |
+          mkdir -p artifacts
+          dotnet pack src/${{ matrix.package }}/${{ matrix.package }}.csproj \
+            -c Release --no-build \
+            -o artifacts \
+            /p:PackageVersion=${GITHUB_REF_NAME#v}  # uses release tag as version
+
+      - name: Publish package to NuGet
+        run: |
+          for pkg in artifacts/*.nupkg; do
+            echo "Pushing $pkg"
+            dotnet nuget push "$pkg" \
+              --api-key ${{ secrets.NUGET_API_KEY }} \
+              --source https://api.nuget.org/v3/index.json
+          done
