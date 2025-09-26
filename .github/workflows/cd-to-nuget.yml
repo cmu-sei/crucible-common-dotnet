@@ -43,6 +43,6 @@ jobs:
           for pkg in artifacts/*.nupkg; do
             echo "Pushing $pkg"
             dotnet nuget push "$pkg" \
-              --api-key ${{ secrets.NUGET_API_KEY }} \
+              --api-key ${{ secrets.NUGET_APIKEY }} \
               --source https://api.nuget.org/v3/index.json
           done
