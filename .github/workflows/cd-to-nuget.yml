@@ -30,19 +30,28 @@ jobs:
       - name: Build package
         run: dotnet build src/${{ matrix.package }} -c Release --no-restore
 
-      - name: Pack package
+      - name: Pack package (and symbols package ".snupkg")
         run: |
           mkdir -p artifacts
           dotnet pack src/${{ matrix.package }}/${{ matrix.package }}.csproj \
             -c Release --no-build \
             -o artifacts \
+            -p:IncludeSymbols=true \
+            -p:SymbolPackageFormat=snupkg \
             /p:PackageVersion=${GITHUB_REF_NAME#v}  # uses release tag as version
 
-      - name: Publish package to NuGet
+      - name: Publish packages (and symbols) to NuGet
         run: |
           for pkg in artifacts/*.nupkg; do
             echo "Pushing $pkg"
             dotnet nuget push "$pkg" \
+              --api-key ${{ secrets.NUGET_APIKEY }} \
+              --source https://api.nuget.org/v3/index.json
+          done
+
+          for snupkg in artifacts/*.snupkg; do
+            echo "Pushing $snupkg"
+            dotnet nuget push "$snupkg" \
               --api-key ${{ secrets.NUGET_APIKEY }} \
               --source https://api.nuget.org/v3/index.json
           done
