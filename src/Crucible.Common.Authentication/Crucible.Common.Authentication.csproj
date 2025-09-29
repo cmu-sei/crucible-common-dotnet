@@ -17,12 +17,6 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
   </ItemGroup>
 
-  <!--Include debug symbols in distributed package-->
-  <PropertyGroup>
-    <DebugType>portable</DebugType>
-    <DebugSymbols>true</DebugSymbols>
-  </PropertyGroup>
-
   <!--README config-->
   <PropertyGroup>
     <PackageReadmeFile>README.md</PackageReadmeFile>
