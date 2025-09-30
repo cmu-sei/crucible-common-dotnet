@@ -33,7 +33,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Crucible.Common.Authentication\Crucible.Common.Authentication.csproj" />
+    <ProjectReference Include="..\..\src\Crucible.Common.Authentication\Crucible.Common.Authentication.csproj" />
   </ItemGroup>
-
 </Project>

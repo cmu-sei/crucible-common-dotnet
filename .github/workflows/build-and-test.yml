@@ -18,8 +18,8 @@ jobs:
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
       - name: Restore dependencies
-        run: dotnet restore src
+        run: dotnet restore
       - name: Build
-        run: dotnet build src -c Release --no-restore
+        run: dotnet build -c Release --no-restore
       - name: Test
-        run: dotnet test src -c Release --no-build
+        run: dotnet test -c Release --no-build
