@@ -52,14 +52,13 @@ jobs:
           echo "Packing version $VERSION"
           dotnet pack src/${{ github.event.inputs.packageName }}/${{ github.event.inputs.packageName }}.csproj \
             -c Release --no-build \
+            --include-symbols
             -o artifacts \
-            -p:IncludeSymbols=true \
-            -p:SymbolPackageFormat=snupkg \
             -p:PackageVersion="$VERSION"
 
       - name: Publish packages (and symbols) to NuGet
         run: |
-          PACKAGE_FILE=artifacts/${{ github.event.inputs.packageName }}.nupkg
+          PACKAGE_FILE=artifacts/${{ github.event.inputs.packageName }}.${{ github.event.inputs.versionNumber }}.nupkg
           echo "Packing/pushing $PACKAGE_FILE"
           dotnet nuget push $PACKAGE_FILE \
             --api-key ${{ secrets.NUGET_APIKEY }} \
