@@ -10,6 +10,12 @@ Crucible.Common is a collection of packages which form the heart of [Crucible](h
 
 A collection of helpers for authentication-related tasks (OAuth, OIDC, claims transformation, etc.)
 
+### Crucible.Common.Utilities
+
+![NuGet Version](https://img.shields.io/nuget/v/Crucible.Common.Utilities)
+
+A collection of generally useful tools for common types.
+
 ### And more coming soon
 
 ## Working on Crucible.Common

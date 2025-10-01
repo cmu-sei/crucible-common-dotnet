@@ -1,7 +1,7 @@
 // Copyright 2025 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 
 namespace Crucible.Common.Utilities.Services;
 
@@ -23,7 +23,7 @@ internal partial class SlugService : ISlugService
         var output = input.ToLowerInvariant();
 
         // replace anything not alphanumeric or dash with "-"
-        output = NotSlugLegalRegex().Replace(output, "[^\w-]+", "-");
+        output = NotSlugLegalRegex().Replace(output, "-");
 
         // deal with multiple consecutive dashes (because of dashes in the input, say)
         output = ConsecutiveDashesRegex().Replace(output, "-");
