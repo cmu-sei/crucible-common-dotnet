@@ -1,0 +1,65 @@
+name: Release package to NuGet
+
+on:
+  workflow_dispatch:
+    inputs:
+      packageName:
+        description: "The NuGet package (which corresponds to a Crucible.Common project) you want to release"
+        required: true
+        type: string
+      versionNumber:
+        description: "A semver version string (e.g. 1.0.0)"
+        required: true
+        type: string
+
+jobs:
+  build-and-test:
+    uses: ./.github/workflows/build-and-test.yml
+
+  # tag the repo with the new release tag
+  tag:
+    needs: build-and-test
+    uses: actions-ecosystem/action-push-tag@v1
+    with:
+      tag: ${{ github.event.inputs.packageName }}-${{ github.event.inputs.versionNumber }}
+      message: "${{ github.event.inputs.packageName }}-${{ github.event.inputs.versionNumber }} release to NuGet"
+
+  # push to NuGet
+  push-to-nuget:
+    needs: tag
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0"
+
+      - name: Restore dependencies
+        run: dotnet restore src/${{ github.event.inputs.packageName }}
+
+      - name: Build package
+        run: dotnet build src/${{ github.event.inputs.packageName }} -c Release --no-restore
+
+      - name: Pack package (and symbols package ".snupkg")
+        run: |
+          mkdir -p artifacts
+          VERSION=${{ github.event.inputs.versionNumber }}
+          echo "Packing version $VERSION"
+          dotnet pack src/${{ github.event.inputs.packageName }}/${{ github.event.inputs.packageName }}.csproj \
+            -c Release --no-build \
+            -o artifacts \
+            -p:IncludeSymbols=true \
+            -p:SymbolPackageFormat=snupkg \
+            -p:PackageVersion="$VERSION"
+
+      - name: Publish packages (and symbols) to NuGet
+        run: |
+          PACKAGE_FILE=artifacts/${{ github.event.inputs.packageName }}.nupkg
+          echo "Packing/pushing $PACKAGE_FILE"
+          dotnet nuget push $PACKAGE_FILE \
+            --api-key ${{ secrets.NUGET_APIKEY }} \
+            --source https://api.nuget.org/v3/index.json
