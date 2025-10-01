@@ -55,6 +55,8 @@ jobs:
             -c Release --no-build \
             -p:IncludeSymbols=true \
             -p:SymbolPackageFormat=snupkg \
+            -p:RepositoryUrl=${{ github.server_url }}/${{ github.repository }}
+            -p:RepositoryType=git \
             -o artifacts \
             -p:PackageVersion="$VERSION"
 
