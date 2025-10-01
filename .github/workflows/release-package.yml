@@ -6,7 +6,9 @@ on:
       packageName:
         description: "The NuGet package (which corresponds to a Crucible.Common project) you want to release"
         required: true
-        type: string
+        type: choice
+        options:
+          - Crucible.Common.Authentication
       versionNumber:
         description: "A semver version string (e.g. 1.0.0)"
         required: true
