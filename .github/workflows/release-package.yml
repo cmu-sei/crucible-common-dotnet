@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - Crucible.Common.Authentication
+          - Crucible.Common.Utilities
       versionNumber:
         description: "A semver version string (e.g. 1.0.0)"
         required: true
