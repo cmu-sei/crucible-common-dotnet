@@ -34,5 +34,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Crucible.Common.Authentication\Crucible.Common.Authentication.csproj" />
+    <ProjectReference Include="..\..\src\Crucible.Common.Utilities\Crucible.Common.Utilities.csproj" />
   </ItemGroup>
 </Project>

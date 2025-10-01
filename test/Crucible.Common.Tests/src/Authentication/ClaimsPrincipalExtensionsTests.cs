@@ -4,7 +4,7 @@
 using System.Security.Claims;
 using Crucible.Common.Authentication.Claims;
 
-namespace Crucible.Common.Tests;
+namespace Crucible.Common.Tests.Authentication;
 
 public class ClaimsPrincipalExtensionsTests
 {
