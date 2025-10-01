@@ -1,0 +1,32 @@
+name: Apply tag
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag name"
+        type: string
+        required: true
+      message:
+        description: "Tag message"
+        type: string
+        required: true
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+        # with:
+        #   fetch-depth: 0 # needed to fetch all history and tags
+
+      - name: Set up git config
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        run: |
+          git tag -a "${{ github.event.inputs.tag }}" -m "${{ github.event.inputs.message }}"
+          git push origin "${{ github.event.inputs.tag }}"
