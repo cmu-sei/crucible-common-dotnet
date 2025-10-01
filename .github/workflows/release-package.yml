@@ -45,14 +45,14 @@ jobs:
       - name: Build package
         run: dotnet build src/${{ github.event.inputs.packageName }} -c Release --no-restore
 
-      - name: Pack package (and symbols package ".snupkg")
+      - name: Pack package (and symbols)
         run: |
           mkdir -p artifacts
           VERSION=${{ github.event.inputs.versionNumber }}
           echo "Packing version $VERSION"
           dotnet pack src/${{ github.event.inputs.packageName }}/${{ github.event.inputs.packageName }}.csproj \
             -c Release --no-build \
-            --include-symbols
+            --include-symbols \
             -o artifacts \
             -p:PackageVersion="$VERSION"
 
