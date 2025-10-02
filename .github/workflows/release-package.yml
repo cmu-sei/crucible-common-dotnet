@@ -46,18 +46,21 @@ jobs:
       - name: Build package
         run: dotnet build src/${{ github.event.inputs.packageName }} -c Release --no-restore
 
-      - name: Pack package (and symbols)
+      - name: Pack package and symbols
         run: |
           mkdir -p artifacts
           VERSION=${{ github.event.inputs.versionNumber }}
           echo "Packing version $VERSION"
           dotnet pack src/${{ github.event.inputs.packageName }}/${{ github.event.inputs.packageName }}.csproj \
             -c Release --no-build \
-            --include-symbols \
+            -p:IncludeSymbols=true \
+            -p:SymbolPackageFormat=snupkg \
+            -p:RepositoryUrl=${{ github.server_url }}/${{ github.repository }}
+            -p:RepositoryType=git \
             -o artifacts \
             -p:PackageVersion="$VERSION"
 
-      - name: Publish packages (and symbols) to NuGet
+      - name: Publish package to NuGet
         run: |
           PACKAGE_FILE=artifacts/${{ github.event.inputs.packageName }}.${{ github.event.inputs.versionNumber }}.nupkg
           echo "Packing/pushing $PACKAGE_FILE"
