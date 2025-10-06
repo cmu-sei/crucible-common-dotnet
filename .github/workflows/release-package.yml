@@ -53,12 +53,12 @@ jobs:
           echo "Packing version $VERSION"
           dotnet pack src/${{ github.event.inputs.packageName }}/${{ github.event.inputs.packageName }}.csproj \
             -c Release --no-build \
-            -o artifacts \\
+            -o artifacts \
             -p:PackageVersion="$VERSION" \
             -p:IncludeSymbols=true \
             -p:SymbolPackageFormat=snupkg \
             -p:RepositoryType=git \
-            -p:RepositoryUrl=${{ github.server_url }}/${{ github.repository }}
+            -p:RepositoryUrl="${{ github.server_url }}/${{ github.repository }}"
 
       - name: Publish package to NuGet
         run: |
