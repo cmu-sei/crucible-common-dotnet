@@ -21,7 +21,7 @@ public static class CrucibleOpenTelemetryExtensions
     }
 
     // wrapper for apps still using IHostBuilder (most apps created pre .NET Core 8)
-    public static IServiceCollection AddCrucibleOpenTelemetryServices(this IServiceCollection services, IHostEnvironment hostEnvironment, IConfigurationManager configuration, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
+    public static IServiceCollection AddCrucibleOpenTelemetryServices(this IServiceCollection services, IHostEnvironment hostEnvironment, IConfiguration configuration, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
     {
         var options = BuildOptions(optionsBuilder);
 
