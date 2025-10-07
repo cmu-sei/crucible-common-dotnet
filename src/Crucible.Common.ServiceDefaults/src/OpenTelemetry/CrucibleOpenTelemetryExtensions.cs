@@ -9,6 +9,21 @@ namespace Crucible.Common.ServiceDefaults.OpenTelemetry;
 
 public static class CrucibleOpenTelemetryExtensions
 {
+    // wrapper for apps still using IHostBuilder (most apps created pre .NET Core 8)
+    public static IHostBuilder AddCrucibleOpenTelemetryServiceDefaults(this IHostBuilder builder, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
+    {
+        builder.ConfigureServices((context, services) =>
+        {
+            var appBuilder = Host.CreateApplicationBuilder();
+            appBuilder.AddCrucibleOpenTelemetryServiceDefaults(optionsBuilder);
+
+            foreach (var svc in appBuilder.Services)
+                services.Add(svc);
+        });
+
+        return builder;
+    }
+
     public static IHostApplicationBuilder AddCrucibleOpenTelemetryServiceDefaults(this IHostApplicationBuilder builder, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
     {
         var options = new CrucibleOpenTelemetryOptions();
