@@ -13,14 +13,31 @@ namespace Crucible.Common.ServiceDefaults.OpenTelemetry;
 
 public static class CrucibleOpenTelemetryExtensions
 {
-    // wrapper for apps still using IHostBuilder (most apps created pre .NET Core 8)
+    /// <summary>
+    /// Call to configure default configuration for OpenTelemetry-enhanced logging.
+    /// 
+    /// NOTE: This function is exposed primarily for apps created before .NET Core 8 that bootstrap with IHostBuilder rather than the newer IHostApplicationBuilder. 
+    /// If your app uses IHostApplicationBuilder, you shouldn't need to call this function directly.
+    /// </summary>
+    /// <param name="logging"></param>
+    /// <returns></returns>
     public static ILoggingBuilder AddCrucibleOpenTelemetryLogging(this ILoggingBuilder logging)
     {
         AddLogging(logging);
         return logging;
     }
 
-    // wrapper for apps still using IHostBuilder (most apps created pre .NET Core 8)
+    /// <summary>
+    /// Call to configure default OpenTelemetry services. Customizable with the <cref>optionsBuilder</cref> parameter. See its properties for details.
+    /// 
+    /// NOTE: This function is exposed primarily for apps created before .NET Core 8 that bootstrap with IHostBuilder rather than the newer IHostApplicationBuilder. 
+    /// If your app uses IHostApplicationBuilder, you shouldn't need to call this function directly.
+    /// </summary>
+    /// <param name="services">Your app's service collection.</param>
+    /// <param name="hostEnvironment">The hosting environment in which your app is starting up.</param>
+    /// <param name="configuration">Your app's configuration.</param>
+    /// <param name="optionsBuilder">A builder used to customize OpenTelemetry configuration.</param>
+    /// <returns></returns>
     public static IServiceCollection AddCrucibleOpenTelemetryServices(this IServiceCollection services, IHostEnvironment hostEnvironment, IConfiguration configuration, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
     {
         var options = BuildOptions(optionsBuilder);
@@ -31,6 +48,12 @@ public static class CrucibleOpenTelemetryExtensions
         return services;
     }
 
+    /// <summary>
+    /// Add default service and logging configuration for OpenTelemetry. Customizable with the <cref>optionsBuilder</cref> parameter. See its properties for details.
+    /// </summary>
+    /// <param name="builder">Your app's </param>
+    /// <param name="optionsBuilder"></param>
+    /// <returns></returns>
     public static IHostApplicationBuilder AddCrucibleOpenTelemetryServiceDefaults(this IHostApplicationBuilder builder, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
     {
         var options = BuildOptions(optionsBuilder);
