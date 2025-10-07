@@ -144,7 +144,7 @@ public static class CrucibleOpenTelemetryExtensions
                     x.AddSource([.. options.CustomActivitySources]);
                 }
 
-                if (env.IsDevelopment())
+                if (options.AddAlwaysOnTracingSampler)
                 {
                     x.SetSampler<AlwaysOnSampler>();
                 }

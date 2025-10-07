@@ -5,6 +5,7 @@ namespace Crucible.Common.ServiceDefaults.OpenTelemetry;
 
 public sealed class CrucibleOpenTelemetryOptions
 {
+    public bool AddAlwaysOnTracingSampler { get; set; } = false;
     public bool AddConsoleExporter { get; set; } = false;
     public bool AddPrometheusExporter { get; set; } = false;
     public IEnumerable<string> CustomActivitySources { get; set; } = [];
