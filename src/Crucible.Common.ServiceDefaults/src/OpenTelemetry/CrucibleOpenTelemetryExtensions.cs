@@ -1,7 +1,8 @@
 // Copyright 2025 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Logs;
@@ -13,27 +14,26 @@ namespace Crucible.Common.ServiceDefaults.OpenTelemetry;
 public static class CrucibleOpenTelemetryExtensions
 {
     // wrapper for apps still using IHostBuilder (most apps created pre .NET Core 8)
-    public static IHostBuilder AddCrucibleOpenTelemetryServiceDefaults(this IHostBuilder builder, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
+    public static ILoggingBuilder AddCrucibleOpenTelemetryLogging(this ILoggingBuilder logging)
     {
-        builder.ConfigureServices((context, services) =>
-        {
-            var appBuilder = Host.CreateApplicationBuilder();
-            appBuilder.AddCrucibleOpenTelemetryServiceDefaults(optionsBuilder);
+        AddLogging(logging);
+        return logging;
+    }
 
-            foreach (var svc in appBuilder.Services)
-                services.Add(svc);
-        });
+    // wrapper for apps still using IHostBuilder (most apps created pre .NET Core 8)
+    public static IServiceCollection AddCrucibleOpenTelemetryServices(this IServiceCollection services, IHostEnvironment hostEnvironment, IConfigurationManager configuration, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
+    {
+        var options = BuildOptions(optionsBuilder);
 
-        return builder;
+        AddServices(services, hostEnvironment, options);
+        AddExporters(services, configuration["OTEL_EXPORTER_OTLP_ENDPOINT"], options);
+
+        return services;
     }
 
     public static IHostApplicationBuilder AddCrucibleOpenTelemetryServiceDefaults(this IHostApplicationBuilder builder, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
     {
-        var options = new CrucibleOpenTelemetryOptions();
-        if (optionsBuilder is not null)
-        {
-            optionsBuilder(options);
-        }
+        var options = BuildOptions(optionsBuilder);
 
         builder.ConfigureOpenTelemetry(options);
         // builder.AddDefaultHealthChecks();
@@ -53,7 +53,17 @@ public static class CrucibleOpenTelemetryExtensions
 
     private static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder, CrucibleOpenTelemetryOptions options)
     {
-        builder.Logging.AddOpenTelemetry(x =>
+        // configure logging
+        AddLogging(builder.Logging);
+        AddServices(builder.Services, builder.Environment, options);
+        AddExporters(builder.Services, builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"], options);
+
+        return builder;
+    }
+
+    private static void AddLogging(this ILoggingBuilder logging)
+    {
+        logging.AddOpenTelemetry(x =>
         {
             x.IncludeScopes = true;
             x.IncludeFormattedMessage = true;
@@ -71,8 +81,11 @@ public static class CrucibleOpenTelemetryExtensions
             //         )
             // );
         });
+    }
 
-        builder.Services
+    private static void AddServices(this IServiceCollection services, IHostEnvironment env, CrucibleOpenTelemetryOptions options)
+    {
+        services
             .AddOpenTelemetry()
             .WithMetrics(x =>
             {
@@ -108,7 +121,7 @@ public static class CrucibleOpenTelemetryExtensions
                     x.AddSource([.. options.CustomActivitySources]);
                 }
 
-                if (builder.Environment.IsDevelopment())
+                if (env.IsDevelopment())
                 {
                     x.SetSampler<AlwaysOnSampler>();
                 }
@@ -119,17 +132,13 @@ public static class CrucibleOpenTelemetryExtensions
                     .AddHttpClientInstrumentation()
                     .AddEntityFrameworkCoreInstrumentation();
             });
-
-        builder.AddOpenTelemetryExporters(options);
-
-        return builder;
     }
 
-    private static IHostApplicationBuilder AddOpenTelemetryExporters(this IHostApplicationBuilder builder, CrucibleOpenTelemetryOptions options)
+    private static void AddExporters(this IServiceCollection services, string? otelExporterEndpoint, CrucibleOpenTelemetryOptions options)
     {
-        var isOtlpEndpointConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+        var isOtlpEndpointConfigured = !string.IsNullOrWhiteSpace(otelExporterEndpoint);
 
-        builder.Services.Configure<OpenTelemetryLoggerOptions>(logging =>
+        services.Configure<OpenTelemetryLoggerOptions>(logging =>
         {
             if (isOtlpEndpointConfigured)
             {
@@ -142,7 +151,7 @@ public static class CrucibleOpenTelemetryExtensions
             }
         });
 
-        builder.Services.ConfigureOpenTelemetryMeterProvider(metrics =>
+        services.ConfigureOpenTelemetryMeterProvider(metrics =>
         {
             if (isOtlpEndpointConfigured)
             {
@@ -160,7 +169,7 @@ public static class CrucibleOpenTelemetryExtensions
             }
         });
 
-        builder.Services.ConfigureOpenTelemetryTracerProvider(tracing =>
+        services.ConfigureOpenTelemetryTracerProvider(tracing =>
         {
             if (isOtlpEndpointConfigured)
             {
@@ -172,7 +181,17 @@ public static class CrucibleOpenTelemetryExtensions
                 tracing.AddConsoleExporter();
             }
         });
+    }
 
-        return builder;
+    private static CrucibleOpenTelemetryOptions BuildOptions(Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
+    {
+        var options = new CrucibleOpenTelemetryOptions();
+
+        if (optionsBuilder is not null)
+        {
+            optionsBuilder(options);
+        }
+
+        return options;
     }
 }
