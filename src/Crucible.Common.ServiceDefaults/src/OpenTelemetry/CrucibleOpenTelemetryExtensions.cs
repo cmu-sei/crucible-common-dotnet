@@ -117,6 +117,7 @@ public static class CrucibleOpenTelemetryExtensions
             .WithMetrics(x =>
             {
                 x.AddRuntimeInstrumentation();
+                x.AddProcessInstrumentation();
 
                 if (options.IncludeDefaultMeters)
                 {
