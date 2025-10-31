@@ -6,6 +6,8 @@
   </Configurations>
   <Folder Name="/src/">
     <Project Path="src/Crucible.Common.Authentication/Crucible.Common.Authentication.csproj" />
+    <Project Path="src/Crucible.Common.ServiceDefaults/Crucible.Common.ServiceDefaults.csproj" />
+    <Project Path="src/Crucible.Common.Utilities/Crucible.Common.Utilities.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Crucible.Common.Tests/Crucible.Common.Tests.csproj" />
