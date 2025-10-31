@@ -1,12 +1,15 @@
 // Copyright 2025 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
+using System;
+using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
 namespace Crucible.Common.ServiceDefaults.OpenTelemetry;
@@ -15,22 +18,22 @@ public static class CrucibleOpenTelemetryExtensions
 {
     /// <summary>
     /// Call to configure default configuration for OpenTelemetry-enhanced logging.
-    /// 
-    /// NOTE: This function is exposed primarily for apps created before .NET Core 8 that bootstrap with IHostBuilder rather than the newer IHostApplicationBuilder. 
+    ///
+    /// NOTE: This function is exposed primarily for apps created before .NET Core 8 that bootstrap with IHostBuilder rather than the newer IHostApplicationBuilder.
     /// If your app uses IHostApplicationBuilder, you shouldn't need to call this function directly.
     /// </summary>
     /// <param name="logging"></param>
     /// <returns></returns>
     public static ILoggingBuilder AddCrucibleOpenTelemetryLogging(this ILoggingBuilder logging)
     {
-        AddLogging(logging);
+        AddLogging(logging, ResolveServiceIdentity());
         return logging;
     }
 
     /// <summary>
     /// Call to configure default OpenTelemetry services. Customizable with the <cref>optionsBuilder</cref> parameter. See its properties for details.
-    /// 
-    /// NOTE: This function is exposed primarily for apps created before .NET Core 8 that bootstrap with IHostBuilder rather than the newer IHostApplicationBuilder. 
+    ///
+    /// NOTE: This function is exposed primarily for apps created before .NET Core 8 that bootstrap with IHostBuilder rather than the newer IHostApplicationBuilder.
     /// If your app uses IHostApplicationBuilder, you shouldn't need to call this function directly.
     /// </summary>
     /// <param name="services">Your app's service collection.</param>
@@ -41,8 +44,9 @@ public static class CrucibleOpenTelemetryExtensions
     public static IServiceCollection AddCrucibleOpenTelemetryServices(this IServiceCollection services, IHostEnvironment hostEnvironment, IConfiguration configuration, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
     {
         var options = BuildOptions(optionsBuilder);
+        var identity = ResolveServiceIdentity(hostEnvironment);
 
-        AddServices(services, hostEnvironment, options);
+        AddServices(services, options, identity);
         AddExporters(services, configuration["OTEL_EXPORTER_OTLP_ENDPOINT"], options);
 
         return services;
@@ -57,8 +61,9 @@ public static class CrucibleOpenTelemetryExtensions
     public static IHostApplicationBuilder AddCrucibleOpenTelemetryServiceDefaults(this IHostApplicationBuilder builder, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
     {
         var options = BuildOptions(optionsBuilder);
+        var identity = ResolveServiceIdentity(builder.Environment);
 
-        builder.ConfigureOpenTelemetry(options);
+        builder.ConfigureOpenTelemetry(options, identity);
         // builder.AddDefaultHealthChecks();
         // builder.Services.AddServiceDiscovery();
 
@@ -74,42 +79,41 @@ public static class CrucibleOpenTelemetryExtensions
         return builder;
     }
 
-    private static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder, CrucibleOpenTelemetryOptions options)
+    private static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder, CrucibleOpenTelemetryOptions options, ServiceIdentity identity)
     {
-        // configure logging
-        AddLogging(builder.Logging);
-        AddServices(builder.Services, builder.Environment, options);
+        AddServices(builder.Services, options, identity);
         AddExporters(builder.Services, builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"], options);
 
         return builder;
     }
 
-    private static void AddLogging(this ILoggingBuilder logging)
+    private static void AddLogging(this ILoggingBuilder logging, ServiceIdentity identity)
     {
         logging.AddOpenTelemetry(x =>
         {
             x.IncludeScopes = true;
             x.IncludeFormattedMessage = true;
-
-            // Not doing this yet, but protects against "unknown_service" in  traces/metrics, maybe?
-            // x.SetResourceBuilder
-            // (
-            //     ResourceBuilder
-            //         .CreateDefault()
-            //         .AddService
-            //         (
-            //             serviceName: builder.Environment.ApplicationName,
-            //             serviceVersion: typeof(Program).Assembly.GetName().Version?.ToString(),
-            //             serviceInstanceId: Environment.MachineName
-            //         )
-            // );
+            x.ParseStateValues = true;
+            x.SetResourceBuilder(
+                ResourceBuilder
+                    .CreateDefault()
+                    .AddService(
+                        serviceName: identity.ServiceName,
+                        serviceVersion: identity.ServiceVersion,
+                        serviceInstanceId: identity.ServiceInstanceId));
         });
     }
 
-    private static void AddServices(this IServiceCollection services, IHostEnvironment env, CrucibleOpenTelemetryOptions options)
+    private static void AddServices(this IServiceCollection services, CrucibleOpenTelemetryOptions options, ServiceIdentity identity)
     {
+        services.AddLogging(logging => AddLogging(logging, identity));
         services
             .AddOpenTelemetry()
+            .ConfigureResource(resource =>
+                resource.AddService(
+                    serviceName: identity.ServiceName,
+                    serviceVersion: identity.ServiceVersion,
+                    serviceInstanceId: identity.ServiceInstanceId))
             .WithMetrics(x =>
             {
                 x.AddRuntimeInstrumentation();
@@ -217,4 +221,19 @@ public static class CrucibleOpenTelemetryExtensions
 
         return options;
     }
+
+    private static ServiceIdentity ResolveServiceIdentity(IHostEnvironment? environment = null)
+    {
+        var assembly = Assembly.GetEntryAssembly();
+        var serviceName = !string.IsNullOrWhiteSpace(environment?.ApplicationName)
+            ? environment!.ApplicationName
+            : assembly?.GetName().Name ?? AppDomain.CurrentDomain.FriendlyName;
+
+        var serviceVersion = assembly?.GetName().Version?.ToString();
+        var serviceInstanceId = Environment.MachineName;
+
+        return new ServiceIdentity(serviceName, serviceVersion, serviceInstanceId);
+    }
+
+    private readonly record struct ServiceIdentity(string ServiceName, string? ServiceVersion, string ServiceInstanceId);
 }
