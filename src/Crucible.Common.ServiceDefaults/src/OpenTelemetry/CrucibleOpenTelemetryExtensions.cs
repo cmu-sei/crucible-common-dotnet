@@ -118,6 +118,8 @@ public static class CrucibleOpenTelemetryExtensions
             {
                 x.AddRuntimeInstrumentation();
                 x.AddProcessInstrumentation();
+                x.AddHttpClientInstrumentation();
+                x.AddAspNetCoreInstrumentation();
 
                 if (options.IncludeDefaultMeters)
                 {
@@ -126,7 +128,8 @@ public static class CrucibleOpenTelemetryExtensions
                         "Microsoft.AspNetCore.Hosting",
                         "Microsoft.AspNetCore.Server.Kestrel",
                         "Microsoft.EntityFrameworkCore",
-                        "System.Net.Http"
+                        "System.Net.Http",
+                        "System.Net.NameResolution"
                     );
                 }
 
