@@ -7,14 +7,14 @@ Default service configuration for Crucible API apps. Right now, this is mostly j
 ```csharp
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.AddCrucibleOpenTelemetryServiceDefaults(options =>
+builder.AddServiceDefaults(options =>
 {
     options.AddConsoleExporter = builder.Environment.IsDevelopment();
     options.CustomActivitySources = ["Player.Api"];
 });
 ```
 
-For `Startup`-style apps, call `services.AddCrucibleOpenTelemetryServices(env, Configuration);` during service registration.
+For `Startup`-style apps, call `services.AddServiceDefaults(env, Configuration);` during service registration.
 
 ## Required environment variables
 
@@ -27,7 +27,7 @@ The OpenTelemetry SDK honors additional standard variables (for example `OTEL_RE
 
 ## Optional library settings
 
-Pass an `Action<CrucibleOpenTelemetryOptions>` when calling `AddCrucibleOpenTelemetryServiceDefaults` or `AddCrucibleOpenTelemetryServices` to customize:
+Pass an `Action<OpenTelemetryOptions>` when calling `AddServiceDefaults` (or the specific `AddOpenTelemetryServiceDefaults` overloads) to customize:
 
 - `AddAlwaysOnTracingSampler` – force sampling of every trace span.
 - `AddConsoleExporter` – write telemetry to console for local debugging.

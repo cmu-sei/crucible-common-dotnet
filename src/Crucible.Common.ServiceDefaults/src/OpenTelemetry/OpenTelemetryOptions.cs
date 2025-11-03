@@ -3,7 +3,7 @@
 
 namespace Crucible.Common.ServiceDefaults.OpenTelemetry;
 
-public sealed class CrucibleOpenTelemetryOptions
+public sealed class OpenTelemetryOptions
 {
     public bool AddAlwaysOnTracingSampler { get; set; } = false;
     public bool AddConsoleExporter { get; set; } = false;

@@ -14,7 +14,7 @@ using OpenTelemetry.Trace;
 
 namespace Crucible.Common.ServiceDefaults.OpenTelemetry;
 
-public static class CrucibleOpenTelemetryExtensions
+public static class OpenTelemetryExtensions
 {
     /// <summary>
     /// Call to configure default configuration for OpenTelemetry-enhanced logging.
@@ -24,7 +24,7 @@ public static class CrucibleOpenTelemetryExtensions
     /// </summary>
     /// <param name="logging"></param>
     /// <returns></returns>
-    public static ILoggingBuilder AddCrucibleOpenTelemetryLogging(this ILoggingBuilder logging)
+    public static ILoggingBuilder AddOpenTelemetryLogging(this ILoggingBuilder logging)
     {
         AddLogging(logging, ResolveServiceIdentity());
         return logging;
@@ -41,7 +41,7 @@ public static class CrucibleOpenTelemetryExtensions
     /// <param name="configuration">Your app's configuration.</param>
     /// <param name="optionsBuilder">A builder used to customize OpenTelemetry configuration.</param>
     /// <returns></returns>
-    public static IServiceCollection AddCrucibleOpenTelemetryServices(this IServiceCollection services, IHostEnvironment hostEnvironment, IConfiguration configuration, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
+    public static IServiceCollection AddOpenTelemetryServiceDefaults(this IServiceCollection services, IHostEnvironment hostEnvironment, IConfiguration configuration, Action<OpenTelemetryOptions>? optionsBuilder = null)
     {
         var options = BuildOptions(optionsBuilder);
         var identity = ResolveServiceIdentity(hostEnvironment);
@@ -58,28 +58,17 @@ public static class CrucibleOpenTelemetryExtensions
     /// <param name="builder">Your app's </param>
     /// <param name="optionsBuilder"></param>
     /// <returns></returns>
-    public static IHostApplicationBuilder AddCrucibleOpenTelemetryServiceDefaults(this IHostApplicationBuilder builder, Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
+    public static IHostApplicationBuilder AddOpenTelemetryServiceDefaults(this IHostApplicationBuilder builder, Action<OpenTelemetryOptions>? optionsBuilder = null)
     {
         var options = BuildOptions(optionsBuilder);
         var identity = ResolveServiceIdentity(builder.Environment);
 
         builder.ConfigureOpenTelemetry(options, identity);
-        // builder.AddDefaultHealthChecks();
-        // builder.Services.AddServiceDiscovery();
-
-        // builder.Services.ConfigureHttpClientDefaults(http =>
-        // {
-        //     // Turn on resilience by default
-        //     http.AddStandardResilienceHandler();
-
-        //     // Turn on service discovery by default
-        //     http.UseServiceDiscovery();
-        // });
 
         return builder;
     }
 
-    private static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder, CrucibleOpenTelemetryOptions options, ServiceIdentity identity)
+    private static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder, OpenTelemetryOptions options, ServiceIdentity identity)
     {
         AddServices(builder.Services, options, identity);
         AddExporters(builder.Services, builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"], options);
@@ -104,7 +93,7 @@ public static class CrucibleOpenTelemetryExtensions
         });
     }
 
-    private static void AddServices(this IServiceCollection services, CrucibleOpenTelemetryOptions options, ServiceIdentity identity)
+    private static void AddServices(this IServiceCollection services, OpenTelemetryOptions options, ServiceIdentity identity)
     {
         services.AddLogging(logging => AddLogging(logging, identity));
         services
@@ -165,7 +154,7 @@ public static class CrucibleOpenTelemetryExtensions
             });
     }
 
-    private static void AddExporters(this IServiceCollection services, string? otelExporterEndpoint, CrucibleOpenTelemetryOptions options)
+    private static void AddExporters(this IServiceCollection services, string? otelExporterEndpoint, OpenTelemetryOptions options)
     {
         var isOtlpEndpointConfigured = !string.IsNullOrWhiteSpace(otelExporterEndpoint);
 
@@ -214,9 +203,9 @@ public static class CrucibleOpenTelemetryExtensions
         });
     }
 
-    private static CrucibleOpenTelemetryOptions BuildOptions(Action<CrucibleOpenTelemetryOptions>? optionsBuilder = null)
+    private static OpenTelemetryOptions BuildOptions(Action<OpenTelemetryOptions>? optionsBuilder = null)
     {
-        var options = new CrucibleOpenTelemetryOptions();
+        var options = new OpenTelemetryOptions();
 
         if (optionsBuilder is not null)
         {
