@@ -59,5 +59,5 @@ When `IncludeDefaultMeters` remains `true`, the provider also subscribes to thes
 - [`Microsoft.AspNetCore.Hosting`](https://learn.microsoft.com/en-us/aspnet/core/diagnostics/metrics) – high-level hosting metrics such as request queue depth and current requests.
 - [`Microsoft.AspNetCore.Server.Kestrel`](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/diagnostics) – Kestrel transport metrics for connections, TLS handshakes, and request/response throughput.
 - [`Microsoft.EntityFrameworkCore`](https://learn.microsoft.com/en-us/ef/core/logging-events-diagnostics/metrics) – database command execution counts and timings.
-- [`System.Net.Http`](https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/telemetry/metrics) – outgoing request rate, duration, and failure counts from the .NET networking stack; see the [.NET networking metrics].
-- [`System.Net.NameResolution`](https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/telemetry/metrics) – DNS cache and lookup timings surfaced by the .NET networking stack; see the same [.NET networking metrics].
+- [`System.Net.Http`](https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/telemetry/metrics) – outgoing request rate, duration, and failure counts from the .NET networking stack.
+- [`System.Net.NameResolution`](https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/telemetry/metrics) – DNS cache and lookup timings surfaced by the .NET networking stack
