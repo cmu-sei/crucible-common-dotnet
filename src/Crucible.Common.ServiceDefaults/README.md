@@ -7,10 +7,10 @@ Default service configuration for Crucible API apps. Right now, this is mostly j
 ```csharp
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.AddServiceDefaults(options =>
+builder.AddServiceDefaults(openTelemetryOptions =>
 {
-    options.AddConsoleExporter = builder.Environment.IsDevelopment();
-    options.CustomActivitySources = ["Player.Api"];
+    openTelemetryOptions.AddConsoleExporter = builder.Environment.IsDevelopment();
+    openTelemetryOptions.CustomActivitySources = ["Player.Api"];
 });
 ```
 
