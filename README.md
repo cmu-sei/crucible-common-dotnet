@@ -10,6 +10,18 @@ Crucible.Common is a collection of packages which form the heart of [Crucible](h
 
 A collection of helpers for authentication-related tasks (OAuth, OIDC, claims transformation, etc.)
 
+### Crucible.Common.EntityEvents
+
+![NuGet Version](https://img.shields.io/nuget/v/Crucible.Common.EntityEvents)
+
+Entity event infrastructure for Entity Framework Core. Automatically generates events when entities are created, updated, or deleted.
+
+### Crucible.Common.ServiceDefaults
+
+![NuGet Version](https://img.shields.io/nuget/v/Crucible.Common.ServiceDefaults)
+
+Default service configuration for Crucible API apps.
+
 ### Crucible.Common.Utilities
 
 ![NuGet Version](https://img.shields.io/nuget/v/Crucible.Common.Utilities)
