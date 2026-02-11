@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Version>0.1.0</Version>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Description>Entity event infrastructure for EF Core. Automatically generates events when entities are created, updated, or deleted.</Description>
+    <Authors>Carnegie Mellon University</Authors>
+    <PackageTags>Entity;Framework;Core;entity-framework-core;EF;EntityFramework;EntityFrameworkCore;EFCore;Events</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Crucible.Common.Tests" />
+  </ItemGroup>
+
+  <!-- Full source distribution - all code compiles in consuming project for easy debugging -->
+  <ItemGroup>
+    <Compile Remove="src/**/*.cs" />
+  </ItemGroup>
+
+  <!-- Pack all source files as contentFiles -->
+  <ItemGroup>
+    <None Include="src/**/*.cs" Pack="true" PackagePath="contentFiles/cs/any/" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
+  <!-- Include .props file to compile the contentFiles in consuming projects -->
+  <ItemGroup>
+    <None Include="build/Crucible.Common.EntityEvents.props" Pack="true" PackagePath="build/" />
+  </ItemGroup>
+
+  <!-- PrivateAssets="all" keeps references for building/testing but doesn't flow as NuGet dependencies.
+       Consuming projects (which are EF Core apps) provide their own versions. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.2" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.2" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.2" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Source Generator -->
+  <ItemGroup>
+    <ProjectReference Include="..\Crucible.Common.EntityEvents.Generators\Crucible.Common.EntityEvents.Generators.csproj"
+                      PrivateAssets="all"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
+  </ItemGroup>
+
+  <!-- Pack generator DLL into analyzers folder for NuGet -->
+  <ItemGroup>
+    <None Include="..\Crucible.Common.EntityEvents.Generators\bin\$(Configuration)\netstandard2.0\Crucible.Common.EntityEvents.Generators.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+  </ItemGroup>
+
+  <!--README config-->
+  <PropertyGroup>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!--LICENSE config-->
+  <PropertyGroup>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+      <None Include="../../LICENSE.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>
