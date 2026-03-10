@@ -39,8 +39,14 @@ public abstract class EventPublishingDbContext : DbContext, IEventPublishingDbCo
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         var result = base.SaveChanges(acceptAllChangesOnSuccess);
-        PublishEvents();
-        ClearTrackedState();
+        try
+        {
+            PublishEvents();
+        }
+        finally
+        {
+            ClearTrackedState();
+        }
         return result;
     }
 
@@ -52,8 +58,14 @@ public abstract class EventPublishingDbContext : DbContext, IEventPublishingDbCo
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         var result = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
-        await PublishEventsAsync(cancellationToken);
-        ClearTrackedState();
+        try
+        {
+            await PublishEventsAsync(cancellationToken);
+        }
+        finally
+        {
+            ClearTrackedState();
+        }
         return result;
     }
 
