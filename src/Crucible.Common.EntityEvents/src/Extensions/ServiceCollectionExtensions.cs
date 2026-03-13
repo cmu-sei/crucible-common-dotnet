@@ -57,14 +57,15 @@ public static class ServiceCollectionExtensions
         services.AddEntityEventInterceptor();
         services.AddPooledDbContextFactory<TContext>((sp, builder) =>
         {
-            builder.AddInterceptors(sp.GetRequiredService<EntityEventInterceptor>());
             configure(sp, builder);
+            builder.AddInterceptors(sp.GetRequiredService<EntityEventInterceptor>());
         });
         services.AddScoped(sp =>
         {
             var factory = sp.GetRequiredService<IDbContextFactory<TContext>>();
             var context = factory.CreateDbContext();
             context.ServiceProvider = sp;
+            context.TrackedEntries.Clear();
             return context;
         });
         return services;

@@ -5,13 +5,15 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Crucible.Common.EntityEvents.Abstractions;
 
 /// <summary>
 /// Interface for DbContext classes that support entity event publishing.
 /// Implement this interface on your DbContext to enable the <see cref="Interceptors.EntityEventInterceptor"/>
-/// to store entity events for later publishing.
+/// to track entity changes and publish events.
 /// </summary>
 public interface IEventPublishingDbContext
 {
@@ -22,17 +24,19 @@ public interface IEventPublishingDbContext
     IServiceProvider? ServiceProvider { get; set; }
 
     /// <summary>
-    /// Collection of entity events accumulated during SaveChanges operations.
-    /// Events are added by the <see cref="Interceptors.EntityEventInterceptor"/> and should be
-    /// published by the DbContext after SaveChanges completes.
-    /// </summary>
-    List<IEntityEvent> EntityEvents { get; }
-
-    /// <summary>
     /// Tracked entity entries used internally by <see cref="Interceptors.EntityEventInterceptor"/>
     /// to track changes across multiple SaveChanges calls within a transaction.
     /// This must be stored on the DbContext (not the interceptor) for thread safety
     /// when using pooled contexts.
     /// </summary>
     List<TrackedEntityEntry> TrackedEntries { get; }
+
+    /// <summary>
+    /// Publishes the entity events created by <see cref="Interceptors.EntityEventInterceptor"/>.
+    /// Called by the interceptor after events have been created from tracked changes.
+    /// </summary>
+    /// <param name="events">The events to publish.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    Task PublishEventsAsync(IReadOnlyList<IEntityEvent> events, CancellationToken cancellationToken = default);
 }
