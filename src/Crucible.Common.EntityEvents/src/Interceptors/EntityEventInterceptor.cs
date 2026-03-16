@@ -40,62 +40,7 @@ public class EntityEventInterceptor : DbTransactionInterceptor, ISaveChangesInte
         _logger = logger;
     }
 
-    /// <inheritdoc/>
-    public override async Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
-    {
-        TransactionCommittedInternal(eventData);
-        await base.TransactionCommittedAsync(transaction, eventData, cancellationToken);
-    }
-
-    /// <inheritdoc/>
-    public override void TransactionCommitted(DbTransaction transaction, TransactionEndEventData eventData)
-    {
-        TransactionCommittedInternal(eventData);
-        base.TransactionCommitted(transaction, eventData);
-    }
-
-    private void TransactionCommittedInternal(TransactionEndEventData eventData)
-    {
-        try
-        {
-            // Store events in the context to be published after SaveChangesAsync completes
-            // This avoids the Npgsql 10+ "Transaction is already completed" error
-            SaveEvents(eventData.Context);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in TransactionCommitted");
-        }
-    }
-
-    /// <inheritdoc/>
-    public int SavedChanges(SaveChangesCompletedEventData eventData, int result)
-    {
-        SavedChangesInternal(eventData);
-        return result;
-    }
-
-    /// <inheritdoc/>
-    public ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
-    {
-        SavedChangesInternal(eventData);
-        return new(result);
-    }
-
-    private void SavedChangesInternal(SaveChangesCompletedEventData eventData)
-    {
-        try
-        {
-            if (eventData.Context?.Database.CurrentTransaction == null)
-            {
-                SaveEvents(eventData.Context);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in SavedChanges");
-        }
-    }
+    #region SavingChanges
 
     /// <summary>
     /// Called before SaveChanges is performed. This saves the changed entities to be used at the end of the
@@ -115,25 +60,205 @@ public class EntityEventInterceptor : DbTransactionInterceptor, ISaveChangesInte
         return new(result);
     }
 
-    /// <summary>
-    /// Creates and stores events in the context to be published after transaction cleanup.
-    /// </summary>
-    /// <param name="dbContext">The DbContext used for this transaction.</param>
-    private void SaveEvents(DbContext? dbContext)
+    #endregion
+
+    #region SavedChanges
+
+    /// <inheritdoc/>
+    public int SavedChanges(SaveChangesCompletedEventData eventData, int result)
+    {
+        SavedChangesInternal(eventData);
+        return result;
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
+    {
+        await SavedChangesInternalAsync(eventData, cancellationToken);
+        return result;
+    }
+
+    private void SavedChangesInternal(SaveChangesCompletedEventData eventData)
     {
         try
         {
-            if (dbContext is IEventPublishingDbContext context)
+            if (eventData.Context?.Database.CurrentTransaction == null)
             {
-                var events = CreateEvents(context);
-                context.EntityEvents.AddRange(events);
+                PublishEventsAsync(eventData.Context, default).GetAwaiter().GetResult();
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in SaveEvents");
+            _logger.LogError(ex, "Error in SavedChanges");
         }
     }
+
+    private async Task SavedChangesInternalAsync(SaveChangesCompletedEventData eventData, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (eventData.Context?.Database.CurrentTransaction == null)
+            {
+                await PublishEventsAsync(eventData.Context, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in SavedChanges");
+        }
+    }
+
+    #endregion
+
+    #region SaveChangesFailed
+
+    /// <inheritdoc/>
+    public void SaveChangesFailed(DbContextErrorEventData eventData)
+    {
+        if (eventData.Context is IEventPublishingDbContext context)
+            ClearState(context);
+    }
+
+    /// <inheritdoc/>
+    public Task SaveChangesFailedAsync(DbContextErrorEventData eventData, CancellationToken cancellationToken = default)
+    {
+        if (eventData.Context is IEventPublishingDbContext context)
+            ClearState(context);
+
+        return Task.CompletedTask;
+    }
+
+    #endregion
+
+    #region TransactionCommitted
+
+    /// <inheritdoc/>
+    public override void TransactionCommitted(DbTransaction transaction, TransactionEndEventData eventData)
+    {
+        TransactionCommittedInternal(eventData);
+        base.TransactionCommitted(transaction, eventData);
+    }
+
+    /// <inheritdoc/>
+    public override async Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+    {
+        await TransactionCommittedInternalAsync(eventData, cancellationToken);
+        await base.TransactionCommittedAsync(transaction, eventData, cancellationToken);
+    }
+
+    private void TransactionCommittedInternal(TransactionEndEventData eventData)
+    {
+        try
+        {
+            if (eventData.Context is not IEventPublishingDbContext context)
+                return;
+
+            var events = CreateEvents(context);
+
+            if (events.Count > 0)
+            {
+                // The DB transaction is committed. Dispose the EF Core transaction wrapper
+                // to clear CurrentTransaction, so event handlers can query the DB without
+                // hitting Npgsql's "Transaction is already completed" error.
+                // Workaround for https://github.com/dotnet/efcore/issues/37642
+                // If issues arise, alternative is create a new scope in consuming app's
+                // PublishEventsAsync
+                eventData.Context?.Database.CurrentTransaction?.Dispose();
+
+                context.PublishEventsAsync(events, default).GetAwaiter().GetResult();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in TransactionCommitted");
+        }
+    }
+
+    private async Task TransactionCommittedInternalAsync(TransactionEndEventData eventData, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (eventData.Context is not IEventPublishingDbContext context)
+                return;
+
+            var events = CreateEvents(context);
+
+            if (events.Count > 0)
+            {
+                // The DB transaction is committed. Dispose the EF Core transaction wrapper
+                // to clear CurrentTransaction, so event handlers can query the DB without
+                // hitting Npgsql's "Transaction is already completed" error.
+                // Workaround for https://github.com/dotnet/efcore/issues/37642
+                // If issues arise, alternative is create a new scope in consuming app's
+                // PublishEventsAsync
+                eventData.Context?.Database.CurrentTransaction?.Dispose();
+
+                await context.PublishEventsAsync(events, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in TransactionCommitted");
+        }
+    }
+
+    #endregion
+
+    #region TransactionRolledBack
+
+    /// <inheritdoc/>
+    public override void TransactionRolledBack(DbTransaction transaction, TransactionEndEventData eventData)
+    {
+        if (eventData.Context is IEventPublishingDbContext context)
+            ClearState(context);
+
+        base.TransactionRolledBack(transaction, eventData);
+    }
+
+    /// <inheritdoc/>
+    public override Task TransactionRolledBackAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+    {
+        if (eventData.Context is IEventPublishingDbContext context)
+            ClearState(context);
+
+        return base.TransactionRolledBackAsync(transaction, eventData, cancellationToken);
+    }
+
+    #endregion
+
+    #region Publish and Clear
+
+    /// <summary>
+    /// Creates events from tracked entries and publishes them.
+    /// TrackedEntries are cleared before publishing so that nested SaveChanges calls
+    /// from event handlers start with clean state.
+    /// </summary>
+    private async Task PublishEventsAsync(DbContext? dbContext, CancellationToken cancellationToken)
+    {
+        if (dbContext is not IEventPublishingDbContext context)
+            return;
+
+        // CreateEvents extracts and clears TrackedEntries before returning.
+        // This ensures nested SaveChanges from event handlers start with clean state.
+        var events = CreateEvents(context);
+
+        if (events.Count > 0)
+        {
+            await context.PublishEventsAsync(events, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Clears tracked entries without publishing (used for rollback).
+    /// </summary>
+    private static void ClearState(IEventPublishingDbContext context)
+    {
+        context.TrackedEntries.Clear();
+    }
+
+    #endregion
+
+    #region Event Creation
 
     private List<IEntityEvent> CreateEvents(IEventPublishingDbContext context)
     {
@@ -184,17 +309,24 @@ public class EntityEventInterceptor : DbTransactionInterceptor, ISaveChangesInte
         return Activator.CreateInstance(closedType, args) as IEntityEvent;
     }
 
-    private TrackedEntityEntry[] GetEntries(IEventPublishingDbContext context)
+    /// <summary>
+    /// Extracts tracked entries that represent changes and clears TrackedEntries.
+    /// </summary>
+    private static TrackedEntityEntry[] GetEntries(IEventPublishingDbContext context)
     {
         var entries = context.TrackedEntries
             .Where(x => x.State == EntityState.Added ||
                         x.State == EntityState.Modified ||
                         x.State == EntityState.Deleted)
-            .ToList();
+            .ToArray();
 
         context.TrackedEntries.Clear();
-        return entries.ToArray();
+        return entries;
     }
+
+    #endregion
+
+    #region Entry Tracking
 
     /// <summary>
     /// Keeps track of changes across multiple SaveChanges calls in a transaction, without duplicates.
@@ -241,4 +373,6 @@ public class EntityEventInterceptor : DbTransactionInterceptor, ISaveChangesInte
             }
         }
     }
+
+    #endregion
 }

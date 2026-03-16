@@ -24,6 +24,7 @@ Inherit from `EventPublishingDbContext` and implement the `PublishEventsAsync` m
 
 ```csharp
 using Crucible.Common.EntityEvents.Abstractions;
+using Microsoft.Extensions.Logging;
 
 [GenerateEntityEventInterfaces(typeof(INotification))]
 public class MyContext : EventPublishingDbContext
@@ -32,21 +33,30 @@ public class MyContext : EventPublishingDbContext
 
     public MyContext(DbContextOptions<MyContext> options) : base(options) { }
 
-    protected override async Task PublishEventsAsync(CancellationToken cancellationToken)
+    public override async Task PublishEventsAsync(IReadOnlyList<IEntityEvent> events, CancellationToken cancellationToken)
     {
-        if (EntityEvents.Count > 0 && ServiceProvider is not null)
+        if (ServiceProvider is not null)
         {
             var mediator = ServiceProvider.GetRequiredService<IMediator>();
-            foreach (var evt in EntityEvents.Cast<INotification>())
+            var logger = ServiceProvider.GetRequiredService<ILogger<MyContext>>();
+
+            foreach (var evt in events.Cast<INotification>())
             {
-                await mediator.Publish(evt, cancellationToken);
+                try
+                {
+                    await mediator.Publish(evt, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error publishing entity event {EventType}", evt.GetType().Name);
+                }
             }
         }
     }
 }
 ```
 
-The base class handles all `SaveChanges` overrides and automatically clears events after publishing. You can use the publishing mechanism of your choice. The example above uses MediatR.
+The `EntityEventInterceptor` handles calling `PublishEventsAsync` at the right time (after SaveChanges for non-transactional operations, or after transaction commit). Events are passed as a parameter — the interceptor creates the events and clears its tracked state before calling your method. You can use the publishing mechanism of your choice. The example above uses MediatR.
 
 ### 2. Register Services
 
@@ -134,10 +144,10 @@ public partial class EntityDeleted<TEntity> : INotification { }
 ## How It Works
 
 1. `EntityEventInterceptor` intercepts `SavingChanges` to capture entity states
-2. After transaction commits (or SaveChanges completes), events are created
-3. Events are added to `EventPublishingDbContext.EntityEvents`
-4. Your `PublishEventsAsync` implementation publishes the events
-5. The base class automatically clears events after publishing
+2. After transaction commits (or SaveChanges completes if no transaction), events are created
+3. The interceptor calls your `PublishEventsAsync` implementation to publish the events
+4. The interceptor automatically clears events and tracked state after publishing
+5. If a transaction is rolled back, tracked state is cleared without publishing
 
 This ensures events are only published for changes that actually persisted to the database.
 
@@ -151,21 +161,13 @@ using Crucible.Common.EntityEvents.Abstractions;
 public class MyContext : DbContext, IEventPublishingDbContext
 {
     public IServiceProvider? ServiceProvider { get; set; }
-    public List<IEntityEvent> EntityEvents { get; } = [];
     public List<TrackedEntityEntry> TrackedEntries { get; } = [];
 
-    public override async Task<int> SaveChangesAsync(CancellationToken ct = default)
+    public Task PublishEventsAsync(IReadOnlyList<IEntityEvent> events, CancellationToken ct = default)
     {
-        var result = await base.SaveChangesAsync(ct);
-        await PublishEventsAsync(ct);
-        EntityEvents.Clear();
-        TrackedEntries.Clear();
-        return result;
-    }
-
-    private async Task PublishEventsAsync(CancellationToken ct)
-    {
-        // Your event publishing logic here
+        // Your event publishing logic here.
+        // The interceptor creates events and passes them to this method.
+        return Task.CompletedTask;
     }
 }
 ```
