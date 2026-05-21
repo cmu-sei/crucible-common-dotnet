@@ -1,6 +1,7 @@
 # compiled output
 **/bin/*
 **/obj/*
+*.csproj.lscache
 
 # sys files
 .DS_Store
