@@ -1,25 +1,22 @@
-name: build-and-test
+# Builds the libraries and runs Crucible.Common.Tests with the shared Crucible workflow; see the
+# .NET Build and Test section of https://github.com/cmu-sei/Crucible-Github-Actions.
+name: Build and Test
+
+# Pull requests validate proposed changes. Pushes to main verify the result after merge.
 on:
-  workflow_call:
-    inputs:
-      dotnet-version:
-        required: false
-        default: "10.0"
-        type: string
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: ${{ inputs.dotnet-version }}
-      - name: Restore dependencies
-        run: dotnet restore
-      - name: Build
-        run: dotnet build -c Release --no-restore
-      - name: Test
-        run: dotnet test -c Release --no-build
+    uses: cmu-sei/Crucible-Github-Actions/.github/workflows/dotnet-test.yaml@dotnet-test-v1
+    permissions:
+      contents: read
+    with:
+      test-project: test/Crucible.Common.Tests
+      # The EntityEvents tests start PostgreSQL themselves but print no harness banner.
+      expect-postgres: false
+      dotnet-version: "10.0.x"     # repo has no global.json

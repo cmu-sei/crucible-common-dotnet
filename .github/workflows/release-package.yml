@@ -13,59 +13,49 @@ on:
           - Crucible.Common.ServiceDefaults
           - Crucible.Common.Utilities
       versionNumber:
-        description: "A semver version string (e.g. 1.0.0)"
+        description: "A semver version string without a leading v (e.g. 1.0.0)"
         required: true
         type: string
 
+permissions: {}
+
 jobs:
   build-and-test:
-    uses: ./.github/workflows/build-and-test.yml
-
-  # tag the repo with the new release tag
-  tag:
-    needs: build-and-test
-    uses: ./.github/workflows/apply-tag.yml
+    uses: cmu-sei/Crucible-Github-Actions/.github/workflows/dotnet-test.yaml@dotnet-test-v1
+    permissions:
+      contents: read
     with:
-      tag: ${{ github.event.inputs.packageName }}-${{ github.event.inputs.versionNumber }}
-      message: "${{ github.event.inputs.packageName }}-${{ github.event.inputs.versionNumber }} release to NuGet"
+      test-project: test/Crucible.Common.Tests
+      expect-postgres: false
+      dotnet-version: "10.0.x"
 
-  # push to NuGet
-  push-to-nuget:
-    needs: tag
+  # Builds and packs only (auth-mode: trusted). nuget.org rejects a trusted-
+  # publishing token issued to a reusable workflow in another repository, so
+  # the push happens in the publish job below, which this file defines.
+  pack:
+    needs: build-and-test
+    uses: cmu-sei/Crucible-Github-Actions/.github/workflows/nuget-release.yaml@nuget-v1
+    permissions:
+      contents: read
+    with:
+      version: ${{ inputs.versionNumber }}
+      project: src/${{ inputs.packageName }}/${{ inputs.packageName }}.csproj
+      include-symbols: true
+      dotnet-version: "10.0.x"     # repo has no global.json
+      auth-mode: trusted
+
+  publish:
+    needs: pack
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write          # tag (created only after a successful push)
+      id-token: write          # NuGet trusted publishing (OIDC -> short-lived push key)
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+      - uses: cmu-sei/Crucible-Github-Actions/actions/nuget-publish@nuget-v1
         with:
-          dotnet-version: "10.0"
-
-      - name: Restore dependencies
-        run: dotnet restore src/${{ github.event.inputs.packageName }}
-
-      - name: Build package
-        run: dotnet build src/${{ github.event.inputs.packageName }} -c Release --no-restore
-
-      - name: Pack package and symbols
-        run: |
-          mkdir -p artifacts
-          VERSION=${{ github.event.inputs.versionNumber }}
-          echo "Packing version $VERSION"
-          dotnet pack src/${{ github.event.inputs.packageName }}/${{ github.event.inputs.packageName }}.csproj \
-            -c Release --no-build \
-            -o artifacts \
-            -p:PackageVersion="$VERSION" \
-            -p:IncludeSymbols=true \
-            -p:SymbolPackageFormat=snupkg \
-            -p:RepositoryType=git \
-            -p:RepositoryUrl="${{ github.server_url }}/${{ github.repository }}"
-
-      - name: Publish package to NuGet
-        run: |
-          PACKAGE_FILE=artifacts/${{ github.event.inputs.packageName }}.${{ github.event.inputs.versionNumber }}.nupkg
-          echo "Packing/pushing $PACKAGE_FILE"
-          dotnet nuget push $PACKAGE_FILE \
-            --api-key ${{ secrets.NUGET_APIKEY }} \
-            --source https://api.nuget.org/v3/index.json
+          package-id: ${{ needs.pack.outputs.package-id }}
+          version: ${{ needs.pack.outputs.version }}
+          nuget-user: ${{ vars.NUGET_USER }}
+          github-release: tag
+          release-tag: ${{ inputs.packageName }}-${{ inputs.versionNumber }}
