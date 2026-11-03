@@ -40,6 +40,31 @@ A collection of generally useful tools for common types.
 - **Important:** Add your fully-qualified package name (`Crucible.Common.YourPackage`) to the `package:` key in our `CD to NuGet` Github Action definition so that new releases of the repo will include your package.
 - **Important:** Add license and readme handling to your new csproj (see [Crucible.Common.Authentication.csproj](https://github.com/cmu-sei/crucible-common-dotnet/blob/main/src/Crucible.Common.Authentication/Crucible.Common.Authentication.csproj) as an example)
 
+### Running the tests
+
+```bash
+dotnet test test/Crucible.Common.Tests
+dotnet test test/Crucible.Common.Tests --filter-class "*.SlugServiceTests"
+dotnet run --project test/Crucible.Common.Tests -- --xunit-diagnostics on    # with xUnit's diagnostic messages
+```
+
+The suite runs on Microsoft.Testing.Platform (`"test": { "runner": "Microsoft.Testing.Platform" }` in `global.json`, which pins no SDK), which xunit.v3 4 requires on the .NET 10 SDK, so test options are xUnit's own (`--filter-class`, `--filter-method`, `--xunit-diagnostics`; see `dotnet test test/Crucible.Common.Tests --help`) rather than VSTest's `--filter`. Docker must be running: the EntityEvents PostgreSQL tests start their own container through Testcontainers.
+
+Coverage is opt-in through `coverlet.MTP`:
+
+```bash
+dotnet test test/Crucible.Common.Tests --results-directory TestResults/coverage \
+  --coverlet --coverlet-output-format cobertura \
+  --coverlet-include "[Crucible.Common.Authentication]*" --coverlet-include "[Crucible.Common.EntityEvents.Generators]*" \
+  --coverlet-include "[Crucible.Common.Utilities]*" \
+  --coverlet-exclude "[*.Tests]*" --coverlet-exclude-by-file "**/.nuget/packages/**/*.cs" \
+  --coverlet-exclude-by-attribute GeneratedCodeAttribute --coverlet-exclude-by-attribute CompilerGeneratedAttribute \
+  --coverlet-exclude-by-attribute ExcludeFromCodeCoverageAttribute --coverlet-exclude-by-attribute Obsolete \
+  --coverlet-skip-auto-props
+```
+
+The include filters keep the figure to the libraries the tests reference (without them coverlet also instruments third-party assemblies that ship sources). `Crucible.Common.EntityEvents` is a source-only package compiled into the test assembly, so it is not in the figure. Read the cobertura totals from the root element's `lines-covered` and `lines-valid`.
+
 ### Setting up a local package registry
 
 - Create a local folder to store in-dev packages
