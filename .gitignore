@@ -5,3 +5,6 @@
 
 # sys files
 .DS_Store
+
+# Test and coverage output (`dotnet test --results-directory TestResults/...`).
+TestResults/

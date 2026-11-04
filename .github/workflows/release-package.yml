@@ -42,7 +42,7 @@ jobs:
       project: src/${{ inputs.packageName }}/${{ inputs.packageName }}.csproj
       include-symbols: true
       license-expression: ""       # keep each project's <PackageLicenseFile> (the SEI LICENSE.md)
-      dotnet-version: "10.0.x"     # repo has no global.json
+      dotnet-version: "10.0.x"     # global.json sets only the test runner, not the SDK
       auth-mode: trusted
 
   publish:
