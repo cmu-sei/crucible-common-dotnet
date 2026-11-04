@@ -19,4 +19,4 @@ jobs:
       test-project: test/Crucible.Common.Tests
       # The EntityEvents tests start PostgreSQL themselves but print no harness banner.
       expect-postgres: false
-      dotnet-version: "10.0.x"     # repo has no global.json
+      dotnet-version: "10.0.x"     # global.json sets only the test runner, not the SDK
