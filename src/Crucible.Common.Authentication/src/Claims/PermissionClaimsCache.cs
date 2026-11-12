@@ -96,6 +96,14 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
     private readonly TimeSpan _sweepInterval;
     private long _lastSweepTimestamp;
 
+    /// <summary>A cache with the given settings, or the defaults when there are none.</summary>
+    /// <param name="options">Settings; read once, here. Defaults to a <see cref="PermissionClaimsCacheOptions"/> as constructed.</param>
+    /// <param name="timeProvider">The clock expiry is measured on; <see cref="TimeProvider.System"/> by default.</param>
+    /// <remarks>
+    /// Usually registered as a singleton with
+    /// <see cref="PermissionClaimsCacheServiceCollectionExtensions.AddPermissionClaimsCache"/>: one cache per process,
+    /// shared by every request.
+    /// </remarks>
     public PermissionClaimsCache(PermissionClaimsCacheOptions? options = null, TimeProvider? timeProvider = null)
     {
         var expiration = (options ?? new PermissionClaimsCacheOptions()).Expiration;
@@ -108,7 +116,10 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
         _lastSweepTimestamp = _time.GetTimestamp();
     }
 
-    /// <summary>The number of entries held, loaded or loading. For diagnostics and tests.</summary>
+    /// <summary>
+    /// The number of entries held, loaded or loading, including expired ones not yet removed. For diagnostics and
+    /// tests; it is a snapshot that concurrent callers may change at once.
+    /// </summary>
     public int Count => _entries.Count;
 
     // Expired entries are dropped when they are next asked for; the sweep removes the ones nobody asks for again

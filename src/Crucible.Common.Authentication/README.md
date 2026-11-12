@@ -31,6 +31,7 @@ to each request's principal.
 
 ```csharp
 services.AddPermissionClaimsCache(options => options.Expiration = TimeSpan.FromSeconds(300));
+// or bind it like any other options: services.Configure<PermissionClaimsCacheOptions>(configuration.GetSection(...))
 
 // in the app's claims service
 var fingerprint = PermissionClaimsFingerprint.Create(tokenRoles, tokenGroups);

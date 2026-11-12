@@ -4,6 +4,7 @@
 using System.Security.Claims;
 using Crucible.Common.Authentication.Claims;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Crucible.Common.Tests.Authentication;
 
@@ -361,6 +362,30 @@ public class PermissionClaimsCacheTests
             .BuildServiceProvider();
 
         Assert.Same(provider.GetRequiredService<IPermissionClaimsCache>(), provider.GetRequiredService<IPermissionClaimsCache>());
+    }
+
+    /// <summary>
+    /// The options are ordinary options: <c>services.Configure</c> and a later call's configure both apply, rather
+    /// than the first registration's settings winning silently.
+    /// </summary>
+    [Fact]
+    public async Task Every_configuration_of_the_options_applies_in_order()
+    {
+        var services = new ServiceCollection()
+            .AddSingleton<TimeProvider>(_time)
+            .AddPermissionClaimsCache(options => options.Expiration = TimeSpan.FromSeconds(30));
+        services.Configure<PermissionClaimsCacheOptions>(options => options.Expiration = TimeSpan.FromSeconds(60));
+        services.AddPermissionClaimsCache(options => options.Expiration += TimeSpan.FromSeconds(60));
+        using var provider = services.BuildServiceProvider();
+        var cache = provider.GetRequiredService<IPermissionClaimsCache>();
+
+        Assert.Equal(TimeSpan.FromSeconds(120), provider.GetRequiredService<IOptions<PermissionClaimsCacheOptions>>().Value.Expiration);
+
+        await cache.GetOrLoadAsync(UserA, "fp", Load("first"), Ct);
+        _time.Advance(TimeSpan.FromSeconds(119));
+        Assert.Equal("first", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
+        _time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal("second", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
     }
 
     private static async Task WaitUntil(Func<bool> condition)
