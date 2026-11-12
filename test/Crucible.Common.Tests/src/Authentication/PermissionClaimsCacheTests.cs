@@ -251,6 +251,34 @@ public class PermissionClaimsCacheTests
         Assert.Equal("loaded", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("again"), Ct)));
     }
 
+    /// <summary>
+    /// A load cancelled by its owner (one that honoured the owner's request token, say) is the owner's failure, not
+    /// the waiting callers': they load again, one of them as the new owner, instead of rethrowing it.
+    /// </summary>
+    [Fact]
+    public async Task Callers_waiting_on_a_load_cancelled_by_its_owner_load_again()
+    {
+        var cache = NewCache();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task<PermissionClaimsLoadResult> CancelledLoad()
+        {
+            Interlocked.Increment(ref _loads);
+            await gate.Task;
+            throw new OperationCanceledException("the owner's request was aborted");
+        }
+
+        var owner = cache.GetOrLoadAsync(UserA, "fp", CancelledLoad, Ct);
+        var waiters = Enumerable.Range(0, 5).Select(_ => cache.GetOrLoadAsync(UserA, "fp", Load("reloaded"), Ct)).ToArray();
+        gate.SetResult();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => owner);
+        var results = await Task.WhenAll(waiters);
+
+        Assert.All(results, claims => Assert.Equal("reloaded", Value(claims)));
+        Assert.Equal(2, _loads);
+    }
+
     [Fact]
     public async Task Expired_entries_nobody_asks_for_again_are_swept()
     {

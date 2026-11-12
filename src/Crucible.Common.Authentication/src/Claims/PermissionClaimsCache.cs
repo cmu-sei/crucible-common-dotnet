@@ -45,6 +45,15 @@ public interface IPermissionClaimsCache
     /// <param name="load">
     /// Builds the claims from the database. Runs at most once at a time per key, on the calling (first) request, and
     /// that caller always waits for it to finish, so it may use the caller's scoped services.
+    /// <para>
+    /// Do not pass the calling request's cancellation token into the load: other requests share its result, and an
+    /// aborted request would fail them all. (If a load is cancelled anyway, the callers waiting on it load again
+    /// rather than rethrow another request's cancellation.)
+    /// </para>
+    /// <para>
+    /// The load must not ask this cache for the same key, directly or from anything it triggers, such as an entity
+    /// event handler its <c>SaveChanges</c> fires: that call waits for the load it is part of, and never returns.
+    /// </para>
     /// </param>
     /// <param name="cancellationToken">Stops a caller waiting on another caller's load; the load itself carries on.</param>
     Task<IReadOnlyList<Claim>> GetOrLoadAsync(
@@ -116,7 +125,15 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
                 if (!task.IsCompleted)
                 {
                     // another caller is loading this key: share its result
-                    return (await task.WaitAsync(cancellationToken).ConfigureAwait(false)).Claims;
+                    try
+                    {
+                        return (await task.WaitAsync(cancellationToken).ConfigureAwait(false)).Claims;
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        // the owner's load was cancelled, not this caller: its entry is gone, so load again
+                        continue;
+                    }
                 }
 
                 if (task.IsCompletedSuccessfully && NowTicks() < Volatile.Read(ref existing.ExpiresAtTicks))

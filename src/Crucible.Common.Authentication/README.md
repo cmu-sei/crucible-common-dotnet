@@ -22,6 +22,11 @@ The loader runs on the request that missed, and that request always waits for it
 scoped services (such as a `DbContext`). The claims the token itself carries are not cached; add the cached claims
 to each request's principal.
 
+- **Don't pass the request's cancellation token into the loader.** Other requests share its result. If a load is
+  cancelled anyway, the requests waiting on it load again instead of failing.
+- **Don't re-enter.** A loader that asks the cache for the same key, directly or through something it triggers (an
+  entity event handler fired by its `SaveChanges`, for example), waits on itself and never returns.
+
 ```csharp
 services.AddPermissionClaimsCache(options => options.Expiration = TimeSpan.FromSeconds(300));
 
