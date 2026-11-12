@@ -12,7 +12,9 @@ transformation, so a page load does not rebuild them on every request.
   A renewed token, or another tab's token, with the same roles and groups reuses the entry. Build the fingerprint
   with `PermissionClaimsFingerprint.Create(...)`, passing one set per input; never include the token id (`jti`).
 - **One load per key at a time.** Concurrent misses for a key share one load; a load that throws is not kept.
-- **Expiry.** `PermissionClaimsCacheOptions.Expiration` (default 300 seconds), counted from when the load finished.
+- **Expiry.** `PermissionClaimsCacheOptions.Expiration` (default 300 seconds), counted on the monotonic clock from
+  when the load finished. `Timeout.InfiniteTimeSpan` keeps entries until invalidated; zero or negative keeps nothing
+  (concurrent misses still share one load).
 - **Invalidation.** `Invalidate(userId)` drops every entry for a user; `InvalidateAll()` drops everything. Call
   them when a membership or role changes.
 - **In memory, per process.** Invalidation only reaches the pod it runs on. On other pods a change takes effect

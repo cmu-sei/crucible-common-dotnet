@@ -122,6 +122,46 @@ public class PermissionClaimsCacheTests
     }
 
     [Fact]
+    public async Task A_negative_expiration_keeps_nothing()
+    {
+        var cache = NewCache(TimeSpan.FromSeconds(-5));
+
+        await cache.GetOrLoadAsync(UserA, "fp", Load("first"), Ct);
+        await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct);
+
+        Assert.Equal(2, _loads);
+        Assert.Equal(0, cache.Count);
+    }
+
+    /// <summary><see cref="Timeout.InfiniteTimeSpan"/> is -1 ms, but means "never expire", not "keep nothing".</summary>
+    [Fact]
+    public async Task An_infinite_expiration_keeps_entries_until_they_are_invalidated()
+    {
+        var cache = NewCache(Timeout.InfiniteTimeSpan);
+        await cache.GetOrLoadAsync(UserA, "fp", Load("first"), Ct);
+
+        _time.Advance(TimeSpan.FromDays(3650));
+        await cache.GetOrLoadAsync(UserB, "fp", Load("other"), Ct);
+        Assert.Equal("first", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
+
+        cache.Invalidate(UserA);
+        Assert.Equal("second", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
+    }
+
+    /// <summary>No expiry instant is computed, so the largest value cannot overflow into "already expired".</summary>
+    [Fact]
+    public async Task The_largest_expiration_neither_overflows_nor_expires()
+    {
+        var cache = NewCache(TimeSpan.MaxValue);
+        await cache.GetOrLoadAsync(UserA, "fp", Load("first"), Ct);
+
+        _time.Advance(TimeSpan.FromDays(3650));
+
+        Assert.Equal("first", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
+        Assert.Equal(1, _loads);
+    }
+
+    [Fact]
     public async Task Invalidating_a_user_drops_every_fingerprint_of_theirs_and_nobody_elses()
     {
         var cache = NewCache();

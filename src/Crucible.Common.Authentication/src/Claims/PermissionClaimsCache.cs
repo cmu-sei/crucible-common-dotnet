@@ -79,8 +79,10 @@ public sealed class PermissionClaimsCacheOptions
     public static readonly TimeSpan DefaultExpiration = TimeSpan.FromSeconds(300);
 
     /// <summary>
-    /// How long a loaded entry is kept, counted from when its load finished. Zero or less keeps nothing, but
-    /// concurrent misses still share one load.
+    /// How long a loaded entry is kept, counted from when its load finished.
+    /// <see cref="Timeout.InfiniteTimeSpan"/> keeps entries until they are invalidated (as does any very large value,
+    /// since no expiry instant is computed). Zero or any other negative value keeps nothing, but concurrent misses
+    /// still share one load.
     /// </summary>
     public TimeSpan Expiration { get; set; } = DefaultExpiration;
 }
@@ -96,7 +98,11 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
 
     public PermissionClaimsCache(PermissionClaimsCacheOptions? options = null, TimeProvider? timeProvider = null)
     {
-        _expiration = (options ?? new PermissionClaimsCacheOptions()).Expiration;
+        var expiration = (options ?? new PermissionClaimsCacheOptions()).Expiration;
+        // InfiniteTimeSpan is -1 ms, so it has to be told apart from the negative values that mean "keep nothing"
+        _expiration = expiration == Timeout.InfiniteTimeSpan ? TimeSpan.MaxValue
+            : expiration < TimeSpan.Zero ? TimeSpan.Zero
+            : expiration;
         _time = timeProvider ?? TimeProvider.System;
         _sweepInterval = _expiration > TimeSpan.FromMinutes(1) ? _expiration : TimeSpan.FromMinutes(1);
         _lastSweepTimestamp = _time.GetTimestamp();
@@ -210,6 +216,12 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
 
     private void SweepIfDue()
     {
+        // nothing kept expires (infinite), or nothing is kept at all (zero)
+        if (_expiration == TimeSpan.MaxValue || _expiration == TimeSpan.Zero)
+        {
+            return;
+        }
+
         var last = Volatile.Read(ref _lastSweepTimestamp);
 
         if (_time.GetElapsedTime(last) < _sweepInterval ||
