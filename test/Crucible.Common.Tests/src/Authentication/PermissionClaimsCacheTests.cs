@@ -334,12 +334,18 @@ public class PermissionClaimsCacheTests
         }
     }
 
+    /// <summary>A clock that moves only when told to: the cache reads its monotonic timestamp, never the wall clock.</summary>
     private sealed class ManualTimeProvider : TimeProvider
     {
-        private DateTimeOffset _now = new(2026, 11, 12, 0, 0, 0, TimeSpan.Zero);
+        private long _timestamp = 1_000_000;
 
-        public override DateTimeOffset GetUtcNow() => _now;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 
-        public void Advance(TimeSpan by) => _now += by;
+        public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
+
+        // the wall clock can jump; reading it at all fails the test
+        public override DateTimeOffset GetUtcNow() => throw new InvalidOperationException("the cache must not read the wall clock");
+
+        public void Advance(TimeSpan by) => Interlocked.Add(ref _timestamp, by.Ticks);
     }
 }

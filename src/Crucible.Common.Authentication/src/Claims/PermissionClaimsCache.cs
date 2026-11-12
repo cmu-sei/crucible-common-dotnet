@@ -91,13 +91,15 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
     private readonly ConcurrentDictionary<CacheKey, Entry> _entries = new();
     private readonly TimeSpan _expiration;
     private readonly TimeProvider _time;
-    private long _nextSweepTicks;
+    private readonly TimeSpan _sweepInterval;
+    private long _lastSweepTimestamp;
 
     public PermissionClaimsCache(PermissionClaimsCacheOptions? options = null, TimeProvider? timeProvider = null)
     {
         _expiration = (options ?? new PermissionClaimsCacheOptions()).Expiration;
         _time = timeProvider ?? TimeProvider.System;
-        _nextSweepTicks = NowTicks() + SweepInterval.Ticks;
+        _sweepInterval = _expiration > TimeSpan.FromMinutes(1) ? _expiration : TimeSpan.FromMinutes(1);
+        _lastSweepTimestamp = _time.GetTimestamp();
     }
 
     /// <summary>The number of entries held, loaded or loading. For diagnostics and tests.</summary>
@@ -105,7 +107,6 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
 
     // Expired entries are dropped when they are next asked for; the sweep removes the ones nobody asks for again
     // (a user who left, or a fingerprint a user no longer has), so the dictionary cannot grow without bound.
-    private TimeSpan SweepInterval => _expiration > TimeSpan.FromMinutes(1) ? _expiration : TimeSpan.FromMinutes(1);
 
     public async Task<IReadOnlyList<Claim>> GetOrLoadAsync(
         Guid userId,
@@ -136,7 +137,7 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
                     }
                 }
 
-                if (task.IsCompletedSuccessfully && NowTicks() < Volatile.Read(ref existing.ExpiresAtTicks))
+                if (task.IsCompletedSuccessfully && IsFresh(existing))
                 {
                     return task.Result.Claims;
                 }
@@ -194,8 +195,9 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
 
         if (result.Cacheable && _expiration > TimeSpan.Zero)
         {
-            // set before the result is published, so nobody sees a completed entry without its expiry
-            Volatile.Write(ref entry.ExpiresAtTicks, NowTicks() + _expiration.Ticks);
+            // set before the result is published, so nobody sees a completed entry without its load time
+            entry.LoadedAtTimestamp = _time.GetTimestamp();
+            entry.Kept = true;
         }
         else
         {
@@ -208,10 +210,10 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
 
     private void SweepIfDue()
     {
-        var now = NowTicks();
-        var due = Volatile.Read(ref _nextSweepTicks);
+        var last = Volatile.Read(ref _lastSweepTimestamp);
 
-        if (now < due || Interlocked.CompareExchange(ref _nextSweepTicks, now + SweepInterval.Ticks, due) != due)
+        if (_time.GetElapsedTime(last) < _sweepInterval ||
+            Interlocked.CompareExchange(ref _lastSweepTimestamp, _time.GetTimestamp(), last) != last)
         {
             return;
         }
@@ -220,14 +222,17 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
         {
             var task = pair.Value.Completion.Task;
 
-            if (task.IsCompleted && now >= Volatile.Read(ref pair.Value.ExpiresAtTicks))
+            if (task.IsCompleted && !IsFresh(pair.Value))
             {
                 _entries.TryRemove(pair);
             }
         }
     }
 
-    private long NowTicks() => _time.GetUtcNow().UtcTicks;
+    // elapsed time on the monotonic timestamp, so a wall clock change cannot expire or extend entries; and no
+    // expiry instant is ever computed, so no expiration is large enough to overflow
+    private bool IsFresh(Entry entry) =>
+        entry.Kept && _time.GetElapsedTime(entry.LoadedAtTimestamp) < _expiration;
 
     private readonly record struct CacheKey(Guid UserId, string Fingerprint);
 
@@ -236,7 +241,11 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
         public readonly TaskCompletionSource<PermissionClaimsLoadResult> Completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        // zero until a cacheable load finishes, so an entry that is still loading never reads as fresh
-        public long ExpiresAtTicks;
+        // set when a cacheable load finishes; written before Kept, which is volatile, so a reader that sees Kept
+        // sees the load time too
+        public long LoadedAtTimestamp;
+
+        // false while loading, and for a load that was not kept, so neither reads as fresh
+        public volatile bool Kept;
     }
 }
