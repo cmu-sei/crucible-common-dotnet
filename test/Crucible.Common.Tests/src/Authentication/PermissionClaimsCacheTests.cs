@@ -3,6 +3,7 @@
 
 using System.Security.Claims;
 using Crucible.Common.Authentication.Claims;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -13,13 +14,19 @@ public class PermissionClaimsCacheTests
     private static readonly Guid UserA = Guid.NewGuid();
     private static readonly Guid UserB = Guid.NewGuid();
 
-    private readonly ManualTimeProvider _time = new();
     private int _loads;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private PermissionClaimsCache NewCache(TimeSpan? expiration = null) =>
-        new(new PermissionClaimsCacheOptions { Expiration = expiration ?? TimeSpan.FromMinutes(5) }, _time);
+    private static PermissionClaimsCache NewCache(TimeSpan? expiration = null)
+    {
+        var services = new ServiceCollection();
+        services.AddHybridCache();
+        var provider = services.BuildServiceProvider();
+        return new PermissionClaimsCache(
+            provider.GetRequiredService<HybridCache>(),
+            new PermissionClaimsCacheOptions { Expiration = expiration ?? TimeSpan.FromMinutes(5) });
+    }
 
     private Func<Task<PermissionClaimsLoadResult>> Load(string value, bool cacheable = true) => () =>
     {
@@ -99,13 +106,11 @@ public class PermissionClaimsCacheTests
     [Fact]
     public async Task An_entry_is_loaded_again_once_it_expires()
     {
-        var cache = NewCache(TimeSpan.FromSeconds(300));
+        var cache = NewCache(TimeSpan.FromMilliseconds(300));
         await cache.GetOrLoadAsync(UserA, "fp", Load("first"), Ct);
-
-        _time.Advance(TimeSpan.FromSeconds(299));
         Assert.Equal("first", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
 
-        _time.Advance(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromMilliseconds(600), Ct);
         Assert.Equal("second", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
         Assert.Equal(2, _loads);
     }
@@ -119,7 +124,6 @@ public class PermissionClaimsCacheTests
         await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct);
 
         Assert.Equal(2, _loads);
-        Assert.Equal(0, cache.Count);
     }
 
     [Fact]
@@ -131,35 +135,22 @@ public class PermissionClaimsCacheTests
         await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct);
 
         Assert.Equal(2, _loads);
-        Assert.Equal(0, cache.Count);
     }
 
     /// <summary><see cref="Timeout.InfiniteTimeSpan"/> is -1 ms, but means "never expire", not "keep nothing".</summary>
-    [Fact]
-    public async Task An_infinite_expiration_keeps_entries_until_they_are_invalidated()
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(long.MaxValue)]
+    public async Task An_infinite_or_huge_expiration_keeps_entries_until_they_are_invalidated(long ticks)
     {
-        var cache = NewCache(Timeout.InfiniteTimeSpan);
+        var cache = NewCache(ticks == -1 ? Timeout.InfiniteTimeSpan : TimeSpan.FromTicks(ticks));
         await cache.GetOrLoadAsync(UserA, "fp", Load("first"), Ct);
 
-        _time.Advance(TimeSpan.FromDays(3650));
-        await cache.GetOrLoadAsync(UserB, "fp", Load("other"), Ct);
+        await Task.Delay(TimeSpan.FromMilliseconds(200), Ct);
         Assert.Equal("first", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
 
-        cache.Invalidate(UserA);
+        await cache.Invalidate(UserA);
         Assert.Equal("second", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
-    }
-
-    /// <summary>No expiry instant is computed, so the largest value cannot overflow into "already expired".</summary>
-    [Fact]
-    public async Task The_largest_expiration_neither_overflows_nor_expires()
-    {
-        var cache = NewCache(TimeSpan.MaxValue);
-        await cache.GetOrLoadAsync(UserA, "fp", Load("first"), Ct);
-
-        _time.Advance(TimeSpan.FromDays(3650));
-
-        Assert.Equal("first", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
-        Assert.Equal(1, _loads);
     }
 
     [Fact]
@@ -170,7 +161,7 @@ public class PermissionClaimsCacheTests
         await cache.GetOrLoadAsync(UserA, "fp-2", Load("a2"), Ct);
         await cache.GetOrLoadAsync(UserB, "fp-1", Load("b1"), Ct);
 
-        cache.Invalidate(UserA);
+        await cache.Invalidate(UserA);
 
         Assert.Equal("a1-new", Value(await cache.GetOrLoadAsync(UserA, "fp-1", Load("a1-new"), Ct)));
         Assert.Equal("a2-new", Value(await cache.GetOrLoadAsync(UserA, "fp-2", Load("a2-new"), Ct)));
@@ -185,7 +176,7 @@ public class PermissionClaimsCacheTests
         await cache.GetOrLoadAsync(UserA, "fp", Load("a"), Ct);
         await cache.GetOrLoadAsync(UserB, "fp", Load("b"), Ct);
 
-        cache.InvalidateAll();
+        await cache.InvalidateAll();
 
         Assert.Equal("a-new", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("a-new"), Ct)));
         Assert.Equal("b-new", Value(await cache.GetOrLoadAsync(UserB, "fp", Load("b-new"), Ct)));
@@ -193,7 +184,7 @@ public class PermissionClaimsCacheTests
 
     /// <summary>
     /// A load that read the database before a membership change must not be kept once the change has invalidated
-    /// the user: the next caller loads again, and the stale load does not overwrite it.
+    /// the user: a caller that joined it still receives it, but the next caller loads again.
     /// </summary>
     [Fact]
     public async Task Invalidating_during_a_load_keeps_that_loads_result_out_of_the_cache()
@@ -208,13 +199,31 @@ public class PermissionClaimsCacheTests
         }
 
         var inFlight = cache.GetOrLoadAsync(UserA, "fp", StaleLoad, Ct);
-        cache.Invalidate(UserA);
-        var fresh = await cache.GetOrLoadAsync(UserA, "fp", Load("fresh"), Ct);
+        await cache.Invalidate(UserA);
         gate.SetResult();
 
         Assert.Equal("stale", Value(await inFlight));
-        Assert.Equal("fresh", Value(fresh));
-        Assert.Equal("fresh", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("later"), Ct)));
+        Assert.Equal("fresh", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("fresh"), Ct)));
+    }
+
+    [Fact]
+    public async Task Invalidating_everything_during_a_load_keeps_that_loads_result_out_of_the_cache()
+    {
+        var cache = NewCache();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task<PermissionClaimsLoadResult> StaleLoad()
+        {
+            await gate.Task;
+            return new PermissionClaimsLoadResult([new Claim("permission", "stale")]);
+        }
+
+        var inFlight = cache.GetOrLoadAsync(UserA, "fp", StaleLoad, Ct);
+        await cache.InvalidateAll();
+        gate.SetResult();
+        await inFlight;
+
+        Assert.Equal("fresh", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("fresh"), Ct)));
     }
 
     [Fact]
@@ -237,7 +246,6 @@ public class PermissionClaimsCacheTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => first);
         await Assert.ThrowsAsync<InvalidOperationException>(() => joined);
         Assert.Equal(1, _loads);
-        Assert.Equal(0, cache.Count);
 
         Assert.Equal("recovered", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("recovered"), Ct)));
     }
@@ -292,46 +300,6 @@ public class PermissionClaimsCacheTests
         Assert.Equal("loaded", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("again"), Ct)));
     }
 
-    /// <summary>
-    /// A load cancelled by its owner (one that honoured the owner's request token, say) is the owner's failure, not
-    /// the waiting callers': they load again, one of them as the new owner, instead of rethrowing it.
-    /// </summary>
-    [Fact]
-    public async Task Callers_waiting_on_a_load_cancelled_by_its_owner_load_again()
-    {
-        var cache = NewCache();
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        async Task<PermissionClaimsLoadResult> CancelledLoad()
-        {
-            Interlocked.Increment(ref _loads);
-            await gate.Task;
-            throw new OperationCanceledException("the owner's request was aborted");
-        }
-
-        var owner = cache.GetOrLoadAsync(UserA, "fp", CancelledLoad, Ct);
-        var waiters = Enumerable.Range(0, 5).Select(_ => cache.GetOrLoadAsync(UserA, "fp", Load("reloaded"), Ct)).ToArray();
-        gate.SetResult();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => owner);
-        var results = await Task.WhenAll(waiters);
-
-        Assert.All(results, claims => Assert.Equal("reloaded", Value(claims)));
-        Assert.Equal(2, _loads);
-    }
-
-    [Fact]
-    public async Task Expired_entries_nobody_asks_for_again_are_swept()
-    {
-        var cache = NewCache(TimeSpan.FromMinutes(5));
-        await cache.GetOrLoadAsync(UserA, "old", Load("a"), Ct);
-
-        _time.Advance(TimeSpan.FromMinutes(6));
-        await cache.GetOrLoadAsync(UserB, "new", Load("b"), Ct);
-
-        Assert.Equal(1, cache.Count);
-    }
-
     [Fact]
     public void Fingerprints_ignore_order_duplicates_and_case_but_not_which_set_a_value_is_in()
     {
@@ -369,23 +337,15 @@ public class PermissionClaimsCacheTests
     /// than the first registration's settings winning silently.
     /// </summary>
     [Fact]
-    public async Task Every_configuration_of_the_options_applies_in_order()
+    public void Every_configuration_of_the_options_applies_in_order()
     {
         var services = new ServiceCollection()
-            .AddSingleton<TimeProvider>(_time)
             .AddPermissionClaimsCache(options => options.Expiration = TimeSpan.FromSeconds(30));
         services.Configure<PermissionClaimsCacheOptions>(options => options.Expiration = TimeSpan.FromSeconds(60));
         services.AddPermissionClaimsCache(options => options.Expiration += TimeSpan.FromSeconds(60));
         using var provider = services.BuildServiceProvider();
-        var cache = provider.GetRequiredService<IPermissionClaimsCache>();
 
         Assert.Equal(TimeSpan.FromSeconds(120), provider.GetRequiredService<IOptions<PermissionClaimsCacheOptions>>().Value.Expiration);
-
-        await cache.GetOrLoadAsync(UserA, "fp", Load("first"), Ct);
-        _time.Advance(TimeSpan.FromSeconds(119));
-        Assert.Equal("first", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
-        _time.Advance(TimeSpan.FromSeconds(1));
-        Assert.Equal("second", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
     }
 
     private static async Task WaitUntil(Func<bool> condition)
@@ -397,20 +357,5 @@ public class PermissionClaimsCacheTests
             Assert.True(DateTime.UtcNow < deadline, "timed out");
             await Task.Delay(10, TestContext.Current.CancellationToken);
         }
-    }
-
-    /// <summary>A clock that moves only when told to: the cache reads its monotonic timestamp, never the wall clock.</summary>
-    private sealed class ManualTimeProvider : TimeProvider
-    {
-        private long _timestamp = 1_000_000;
-
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-        public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
-
-        // the wall clock can jump; reading it at all fails the test
-        public override DateTimeOffset GetUtcNow() => throw new InvalidOperationException("the cache must not read the wall clock");
-
-        public void Advance(TimeSpan by) => Interlocked.Add(ref _timestamp, by.Ticks);
     }
 }

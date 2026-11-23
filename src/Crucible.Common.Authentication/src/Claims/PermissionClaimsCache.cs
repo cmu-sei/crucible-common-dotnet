@@ -1,7 +1,8 @@
 // Copyright 2026 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
-using System.Collections.Concurrent;
+using System.ComponentModel;
+using Microsoft.Extensions.Caching.Hybrid;
 using System.Security.Claims;
 
 namespace Crucible.Common.Authentication.Claims;
@@ -27,9 +28,11 @@ public readonly record struct PermissionClaimsLoadResult(IReadOnlyList<Claim> Cl
 /// A load that throws is not kept, so the next caller loads again.
 /// </para>
 /// <para>
-/// The cache is in memory and per process. <see cref="Invalidate"/> and <see cref="InvalidateAll"/> only reach the
-/// pod they run on; on the others a change takes effect when the entry expires, so
-/// <see cref="PermissionClaimsCacheOptions.Expiration"/> bounds how stale another pod's claims can be.
+/// Built on <see cref="HybridCache"/>. With only its default in-memory level, the cache is per process, and
+/// <see cref="Invalidate"/> and <see cref="InvalidateAll"/> only reach the pod they run on; on the others a change
+/// takes effect when the entry expires, so <see cref="PermissionClaimsCacheOptions.Expiration"/> bounds how stale
+/// another pod's claims can be. Registering an <c>IDistributedCache</c> (or a HybridCache implementation with a
+/// backplane) shares entries between pods without changing the apps.
 /// </para>
 /// </remarks>
 public interface IPermissionClaimsCache
@@ -43,12 +46,12 @@ public interface IPermissionClaimsCache
     /// an entry. Use <see cref="PermissionClaimsFingerprint.Create(IEnumerable{string}?[])"/>. Never the token id.
     /// </param>
     /// <param name="load">
-    /// Builds the claims from the database. Runs at most once at a time per key, on the calling (first) request, and
-    /// that caller always waits for it to finish, so it may use the caller's scoped services.
+    /// Builds the claims from the database. Runs at most once at a time per key, shared by every caller waiting on it.
+    /// It runs on the first caller's request, but if that caller stops waiting while others still do, it carries on
+    /// after the first request has ended, so it must not use that request's scoped services: create its own scope.
     /// <para>
     /// Do not pass the calling request's cancellation token into the load: other requests share its result, and an
-    /// aborted request would fail them all. (If a load is cancelled anyway, the callers waiting on it load again
-    /// rather than rethrow another request's cancellation.)
+    /// aborted request would fail them all.
     /// </para>
     /// <para>
     /// The load must not ask this cache for the same key, directly or from anything it triggers, such as an entity
@@ -63,13 +66,14 @@ public interface IPermissionClaimsCache
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Drops every entry for the user, whatever its fingerprint, and detaches any load in flight for them so the next
-    /// caller loads again. Callers already waiting on that load still receive it.
+    /// Drops every entry for the user, whatever its fingerprint. A load already in flight is not kept once it
+    /// finishes, so the next caller loads again. Callers already waiting on that load still receive it. Call this
+    /// after the change has been committed.
     /// </summary>
-    void Invalidate(Guid userId);
+    ValueTask Invalidate(Guid userId);
 
     /// <summary>Drops every entry, for a change that reaches users the caller cannot list (a role's permissions).</summary>
-    void InvalidateAll();
+    ValueTask InvalidateAll();
 }
 
 /// <summary>Settings for <see cref="PermissionClaimsCache"/>.</summary>
@@ -79,9 +83,9 @@ public sealed class PermissionClaimsCacheOptions
     public static readonly TimeSpan DefaultExpiration = TimeSpan.FromSeconds(300);
 
     /// <summary>
-    /// How long a loaded entry is kept, counted from when its load finished.
+    /// How long a loaded entry is kept.
     /// <see cref="Timeout.InfiniteTimeSpan"/> keeps entries until they are invalidated (as does any very large value,
-    /// since no expiry instant is computed). Zero or any other negative value keeps nothing, but concurrent misses
+    /// which is capped at ten years). Zero or any other negative value keeps nothing, but concurrent misses
     /// still share one load.
     /// </summary>
     public TimeSpan Expiration { get; set; } = DefaultExpiration;
@@ -90,40 +94,45 @@ public sealed class PermissionClaimsCacheOptions
 /// <inheritdoc cref="IPermissionClaimsCache"/>
 public sealed class PermissionClaimsCache : IPermissionClaimsCache
 {
-    private readonly ConcurrentDictionary<CacheKey, Entry> _entries = new();
-    private readonly TimeSpan _expiration;
-    private readonly TimeProvider _time;
-    private readonly TimeSpan _sweepInterval;
-    private long _lastSweepTimestamp;
+    private const string AllTag = "permission-claims";
+    private static readonly TimeSpan MaxExpiration = TimeSpan.FromDays(3650);
 
-    /// <summary>A cache with the given settings, or the defaults when there are none.</summary>
+    private readonly HybridCache _cache;
+    private readonly HybridCacheEntryOptions _entryOptions;
+
+    // bumped by every invalidation, so a load that started before one is not kept: tag removal only covers entries
+    // created before it, and whether a load already in flight counts is not specified
+    private long _generation;
+
+    /// <summary>A cache over the given <see cref="HybridCache"/>, with the given settings or the defaults.</summary>
+    /// <param name="cache">The hybrid cache entries are stored in.</param>
     /// <param name="options">Settings; read once, here. Defaults to a <see cref="PermissionClaimsCacheOptions"/> as constructed.</param>
-    /// <param name="timeProvider">The clock expiry is measured on; <see cref="TimeProvider.System"/> by default.</param>
     /// <remarks>
     /// Usually registered as a singleton with
     /// <see cref="PermissionClaimsCacheServiceCollectionExtensions.AddPermissionClaimsCache"/>: one cache per process,
     /// shared by every request.
     /// </remarks>
-    public PermissionClaimsCache(PermissionClaimsCacheOptions? options = null, TimeProvider? timeProvider = null)
+    public PermissionClaimsCache(HybridCache cache, PermissionClaimsCacheOptions? options = null)
     {
+        ArgumentNullException.ThrowIfNull(cache);
+        _cache = cache;
         var expiration = (options ?? new PermissionClaimsCacheOptions()).Expiration;
+
         // InfiniteTimeSpan is -1 ms, so it has to be told apart from the negative values that mean "keep nothing"
-        _expiration = expiration == Timeout.InfiniteTimeSpan ? TimeSpan.MaxValue
-            : expiration < TimeSpan.Zero ? TimeSpan.Zero
-            : expiration;
-        _time = timeProvider ?? TimeProvider.System;
-        _sweepInterval = _expiration > TimeSpan.FromMinutes(1) ? _expiration : TimeSpan.FromMinutes(1);
-        _lastSweepTimestamp = _time.GetTimestamp();
+        _entryOptions = expiration == Timeout.InfiniteTimeSpan
+            ? new HybridCacheEntryOptions { Expiration = MaxExpiration, LocalCacheExpiration = MaxExpiration }
+            : expiration <= TimeSpan.Zero
+                ? new HybridCacheEntryOptions
+                {
+                    // concurrent misses still share one load, but nothing is written
+                    Flags = HybridCacheEntryFlags.DisableLocalCacheWrite | HybridCacheEntryFlags.DisableDistributedCacheWrite
+                }
+                : new HybridCacheEntryOptions
+                {
+                    Expiration = expiration < MaxExpiration ? expiration : MaxExpiration,
+                    LocalCacheExpiration = expiration < MaxExpiration ? expiration : MaxExpiration
+                };
     }
-
-    /// <summary>
-    /// The number of entries held, loaded or loading, including expired ones not yet removed. For diagnostics and
-    /// tests; it is a snapshot that concurrent callers may change at once.
-    /// </summary>
-    public int Count => _entries.Count;
-
-    // Expired entries are dropped when they are next asked for; the sweep removes the ones nobody asks for again
-    // (a user who left, or a fingerprint a user no longer has), so the dictionary cannot grow without bound.
 
     public async Task<IReadOnlyList<Claim>> GetOrLoadAsync(
         Guid userId,
@@ -132,143 +141,49 @@ public sealed class PermissionClaimsCache : IPermissionClaimsCache
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(load);
-        var key = new CacheKey(userId, fingerprint ?? string.Empty);
+        var key = $"{userId:N}:{fingerprint ?? string.Empty}";
+        var generation = Volatile.Read(ref _generation);
+        var keep = true;
 
-        while (true)
-        {
-            if (_entries.TryGetValue(key, out var existing))
+        var cached = await _cache.GetOrCreateAsync(
+            key,
+            async _ =>
             {
-                var task = existing.Completion.Task;
+                var result = await load().ConfigureAwait(false);
+                keep = result.Cacheable;
+                return new CachedClaims((result.Claims ?? []).Select(c => new CachedClaim(c.Type, c.Value)).ToArray());
+            },
+            _entryOptions,
+            [AllTag, UserTag(userId)],
+            cancellationToken).ConfigureAwait(false);
 
-                if (!task.IsCompleted)
-                {
-                    // another caller is loading this key: share its result
-                    try
-                    {
-                        return (await task.WaitAsync(cancellationToken).ConfigureAwait(false)).Claims;
-                    }
-                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                    {
-                        // the owner's load was cancelled, not this caller: its entry is gone, so load again
-                        continue;
-                    }
-                }
-
-                if (task.IsCompletedSuccessfully && IsFresh(existing))
-                {
-                    return task.Result.Claims;
-                }
-
-                // expired (or, defensively, a failed load that was not removed): only remove this exact entry, in
-                // case another caller has already replaced it
-                _entries.TryRemove(new KeyValuePair<CacheKey, Entry>(key, existing));
-                continue;
-            }
-
-            var entry = new Entry();
-
-            if (!_entries.TryAdd(key, entry))
-            {
-                continue;
-            }
-
-            SweepIfDue();
-            return await LoadAsync(key, entry, load).ConfigureAwait(false);
+        // not cacheable, or invalidated while it loaded: drop it so the next caller loads again
+        if (!keep || Volatile.Read(ref _generation) != generation)
+        {
+            await _cache.RemoveAsync(key, CancellationToken.None).ConfigureAwait(false);
         }
+
+        return cached.Claims.Select(c => new Claim(c.Type, c.Value)).ToArray();
     }
 
-    public void Invalidate(Guid userId)
+    public async ValueTask Invalidate(Guid userId)
     {
-        foreach (var pair in _entries)
-        {
-            if (pair.Key.UserId == userId)
-            {
-                _entries.TryRemove(pair);
-            }
-        }
+        Interlocked.Increment(ref _generation);
+        await _cache.RemoveByTagAsync(UserTag(userId)).ConfigureAwait(false);
     }
 
-    public void InvalidateAll() => _entries.Clear();
-
-    private async Task<IReadOnlyList<Claim>> LoadAsync(CacheKey key, Entry entry, Func<Task<PermissionClaimsLoadResult>> load)
+    public async ValueTask InvalidateAll()
     {
-        PermissionClaimsLoadResult result;
-
-        try
-        {
-            result = await load().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // not kept: the next caller loads again
-            _entries.TryRemove(new KeyValuePair<CacheKey, Entry>(key, entry));
-            entry.Completion.SetException(ex);
-            // waiting callers rethrow it; mark it observed so a load nobody waited on is not reported as unobserved
-            _ = entry.Completion.Task.Exception;
-            throw;
-        }
-
-        result = result with { Claims = result.Claims?.ToArray() ?? [] };
-
-        if (result.Cacheable && _expiration > TimeSpan.Zero)
-        {
-            // set before the result is published, so nobody sees a completed entry without its load time
-            entry.LoadedAtTimestamp = _time.GetTimestamp();
-            entry.Kept = true;
-        }
-        else
-        {
-            _entries.TryRemove(new KeyValuePair<CacheKey, Entry>(key, entry));
-        }
-
-        entry.Completion.SetResult(result);
-        return result.Claims;
+        Interlocked.Increment(ref _generation);
+        await _cache.RemoveByTagAsync(AllTag).ConfigureAwait(false);
     }
 
-    private void SweepIfDue()
-    {
-        // nothing kept expires (infinite), or nothing is kept at all (zero)
-        if (_expiration == TimeSpan.MaxValue || _expiration == TimeSpan.Zero)
-        {
-            return;
-        }
+    // the key is the user id and the fingerprint, so a tag per user reaches every fingerprint of theirs
+    private static string UserTag(Guid userId) => $"user:{userId:N}";
 
-        var last = Volatile.Read(ref _lastSweepTimestamp);
+    // Claim does not round-trip through System.Text.Json, and the loaders only use the type and value
+    [ImmutableObject(true)]
+    internal sealed record CachedClaims(CachedClaim[] Claims);
 
-        if (_time.GetElapsedTime(last) < _sweepInterval ||
-            Interlocked.CompareExchange(ref _lastSweepTimestamp, _time.GetTimestamp(), last) != last)
-        {
-            return;
-        }
-
-        foreach (var pair in _entries)
-        {
-            var task = pair.Value.Completion.Task;
-
-            if (task.IsCompleted && !IsFresh(pair.Value))
-            {
-                _entries.TryRemove(pair);
-            }
-        }
-    }
-
-    // elapsed time on the monotonic timestamp, so a wall clock change cannot expire or extend entries; and no
-    // expiry instant is ever computed, so no expiration is large enough to overflow
-    private bool IsFresh(Entry entry) =>
-        entry.Kept && _time.GetElapsedTime(entry.LoadedAtTimestamp) < _expiration;
-
-    private readonly record struct CacheKey(Guid UserId, string Fingerprint);
-
-    private sealed class Entry
-    {
-        public readonly TaskCompletionSource<PermissionClaimsLoadResult> Completion =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        // set when a cacheable load finishes; written before Kept, which is volatile, so a reader that sees Kept
-        // sees the load time too
-        public long LoadedAtTimestamp;
-
-        // false while loading, and for a load that was not kept, so neither reads as fresh
-        public volatile bool Kept;
-    }
+    internal sealed record CachedClaim(string Type, string Value);
 }

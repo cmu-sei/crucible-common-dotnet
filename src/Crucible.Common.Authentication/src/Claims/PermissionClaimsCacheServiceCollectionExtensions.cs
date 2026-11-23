@@ -1,6 +1,7 @@
 // Copyright 2026 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -12,8 +13,8 @@ public static class PermissionClaimsCacheServiceCollectionExtensions
 {
     /// <summary>
     /// Registers a singleton <see cref="IPermissionClaimsCache"/>, configured from
-    /// <see cref="IOptions{PermissionClaimsCacheOptions}"/>. A <see cref="TimeProvider"/> registered in the container is
-    /// used for expiry when there is one.
+    /// <see cref="IOptions{PermissionClaimsCacheOptions}"/>, and adds <c>HybridCache</c> if the app has not already
+    /// registered one (an app that registered its own, with a distributed level for example, keeps it).
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">
@@ -27,6 +28,7 @@ public static class PermissionClaimsCacheServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddOptions<PermissionClaimsCacheOptions>();
+        services.AddHybridCache();
 
         if (configure is not null)
         {
@@ -35,8 +37,8 @@ public static class PermissionClaimsCacheServiceCollectionExtensions
 
         services.TryAddSingleton<IPermissionClaimsCache>(serviceProvider =>
             new PermissionClaimsCache(
-                serviceProvider.GetRequiredService<IOptions<PermissionClaimsCacheOptions>>().Value,
-                serviceProvider.GetService<TimeProvider>()));
+                serviceProvider.GetRequiredService<HybridCache>(),
+                serviceProvider.GetRequiredService<IOptions<PermissionClaimsCacheOptions>>().Value));
 
         return services;
     }
