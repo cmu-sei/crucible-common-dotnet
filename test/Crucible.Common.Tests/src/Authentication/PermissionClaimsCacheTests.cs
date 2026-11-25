@@ -2,6 +2,7 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System.Security.Claims;
+using Microsoft.Extensions.Time.Testing;
 using Crucible.Common.Authentication.Claims;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,15 +19,26 @@ public class PermissionClaimsCacheTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static PermissionClaimsCache NewCache(TimeSpan? expiration = null)
+    private static PermissionClaimsCache NewCache(TimeSpan? expiration = null, TimeProvider? time = null)
     {
         var services = new ServiceCollection();
+        if (time != null)
+#pragma warning disable CS0618 // the memory cache reads its clock from this option, not from a registered TimeProvider
+            services.AddMemoryCache(options => options.Clock = new TimeProviderClock(time));
+#pragma warning restore CS0618
         services.AddHybridCache();
         var provider = services.BuildServiceProvider();
         return new PermissionClaimsCache(
             provider.GetRequiredService<HybridCache>(),
             new PermissionClaimsCacheOptions { Expiration = expiration ?? TimeSpan.FromMinutes(5) });
     }
+
+#pragma warning disable CS0618
+    private sealed class TimeProviderClock(TimeProvider time) : Microsoft.Extensions.Internal.ISystemClock
+    {
+        public DateTimeOffset UtcNow => time.GetUtcNow();
+    }
+#pragma warning restore CS0618
 
     private Func<Task<PermissionClaimsLoadResult>> Load(string value, bool cacheable = true) => () =>
     {
@@ -106,11 +118,12 @@ public class PermissionClaimsCacheTests
     [Fact]
     public async Task An_entry_is_loaded_again_once_it_expires()
     {
-        var cache = NewCache(TimeSpan.FromMilliseconds(300));
+        var time = new FakeTimeProvider();
+        var cache = NewCache(TimeSpan.FromMinutes(5), time);
         await cache.GetOrLoadAsync(UserA, "fp", Load("first"), Ct);
         Assert.Equal("first", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(600), Ct);
+        time.Advance(TimeSpan.FromMinutes(6));
         Assert.Equal("second", Value(await cache.GetOrLoadAsync(UserA, "fp", Load("second"), Ct)));
         Assert.Equal(2, _loads);
     }
